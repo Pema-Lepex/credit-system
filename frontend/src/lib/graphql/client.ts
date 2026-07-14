@@ -18,7 +18,7 @@ import { ClientError, GraphQLClient, type Variables } from "graphql-request";
 
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "@/lib/auth/tokens";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://credit-system-1.onrender.com/graphql";
 export const GRAPHQL_ENDPOINT = `${API_URL.replace(/\/$/, "")}/graphql`;
 
 /** Public routes must never be bounced to /login — that is a redirect loop. */
