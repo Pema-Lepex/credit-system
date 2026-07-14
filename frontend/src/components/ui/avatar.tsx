@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import Image from "next/image";
 import { forwardRef, useState } from "react";
 
+import { assetUrl } from "@/lib/media";
 import { avatarTint, cn, initials } from "@/lib/utils";
 
 const avatarVariants = cva(
@@ -45,13 +46,22 @@ export interface AvatarProps
  * Falls back to tinted initials on a missing OR broken image — a 404 avatar must
  * not leave a grey box. The tint is hashed from the seed so a given user is
  * always the same colour, which makes an avatar list scannable.
+ *
+ * The `src` is absolutised HERE rather than at the call sites. The API hands back
+ * file paths relative to itself ("/api/files/…"), which resolve against the FRONTEND
+ * origin and 404 — and a 404 lands in the fallback above, so a perfectly good
+ * uploaded photo just showed up as initials, with no error anywhere. Half the call
+ * sites remembered to wrap it and half did not; doing it in the component means none
+ * of them have to. assetUrl leaves absolute/blob/data URLs untouched, so passing an
+ * already-absolute URL (or an in-flight upload preview) still works.
  */
 export const Avatar = forwardRef<HTMLSpanElement, AvatarProps>(function Avatar(
   { className, size = "md", src, name, seed, ...props },
   ref,
 ) {
   const [failed, setFailed] = useState(false);
-  const showImage = Boolean(src) && !failed;
+  const resolved = assetUrl(src);
+  const showImage = Boolean(resolved) && !failed;
   const label = name ?? "";
   const px = PX[size ?? "md"];
 
@@ -68,7 +78,7 @@ export const Avatar = forwardRef<HTMLSpanElement, AvatarProps>(function Avatar(
     >
       {showImage ? (
         <Image
-          src={src as string}
+          src={resolved as string}
           alt={label ? `${label} avatar` : ""}
           width={px}
           height={px}

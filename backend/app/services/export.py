@@ -39,8 +39,14 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
-from sqlmodel import Session, col
+
+# `select` MUST come from sqlmodel here, not sqlalchemy. They look identical and are
+# not: sqlmodel.select(Model) returns a SelectOfScalar, which Session.exec() unwraps
+# into model instances. sqlalchemy.select(Model) returns a plain Select, which exec()
+# hands back as Row objects -- so `job.state` raises AttributeError and the whole
+# exports list 500s ("Could not load your exports"). Every other service imports it
+# from sqlmodel; this file was the odd one out.
+from sqlmodel import Session, col, select
 
 from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationError

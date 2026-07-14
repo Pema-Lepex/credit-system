@@ -7,12 +7,14 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { popoverVariants } from "@/lib/motion";
@@ -29,7 +31,43 @@ import { cn } from "@/lib/utils";
  * Focus is moved by querying the live DOM for [role="menuitem"] rather than a
  * registry of refs: items can be conditionally rendered (permissions!), and a
  * stale registry index silently focuses the wrong row. The DOM is the truth.
+ *
+ * WHY THE PANEL IS PORTALLED INSTEAD OF POSITIONED `absolute`
+ * -----------------------------------------------------------
+ * It used to be an absolutely-positioned child of the trigger. That works right up
+ * until an ancestor establishes a clipping context -- and TableContainer does, twice
+ * (`overflow-hidden` on the frame, `overflow-x-auto` on the scroll region, both
+ * necessary). A row's "..." menu was then clipped to the table's bounds and appeared
+ * to do nothing on desktop, while working on mobile, where the same rows render as
+ * cards outside any overflow container. That is not a table bug to be patched per
+ * table; it is what `absolute` means.
+ *
+ * So the panel renders into document.body and positions itself `fixed` from the
+ * trigger's viewport rect. No ancestor can clip it -- not overflow, not a transform,
+ * not a stacking context. It is re-measured on scroll/resize (capture phase, so
+ * scrolling the table itself counts), and flips above the trigger when there is not
+ * room below.
  */
+
+interface Position {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+}
+
+/** Gap between trigger and panel, matching the old `mt-2`. */
+const GAP = 8;
+/** Keep the panel off the very edge of the viewport. */
+const EDGE = 8;
+
+/**
+ * useLayoutEffect is the right hook (measure before paint, so the panel never shows
+ * at the wrong spot) but React logs a warning when it runs during SSR, where there is
+ * no layout to read. This component is prerendered on every page that has a table, so
+ * fall back to useEffect on the server, where the body no-ops anyway.
+ */
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 interface DropdownContextValue {
   open: boolean;
@@ -158,7 +196,8 @@ export function DropdownMenuContent({
   className,
   "aria-label": ariaLabel,
 }: DropdownMenuContentProps) {
-  const { open, setOpen, menuId, triggerId, contentRef, pendingFocus } = useDropdown();
+  const { open, setOpen, menuId, triggerId, triggerRef, contentRef, pendingFocus } = useDropdown();
+  const [position, setPosition] = useState<Position | null>(null);
 
   // Focus the requested item once the panel is in the DOM.
   useEffect(() => {
@@ -175,6 +214,55 @@ export function DropdownMenuContent({
     });
     return () => cancelAnimationFrame(raf);
   }, [open, contentRef, pendingFocus]);
+
+  // Anchor the fixed panel to the trigger's viewport rect, and keep it there.
+  useIsomorphicLayoutEffect(() => {
+    if (!open) return;
+
+    const place = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      // Height is 0 on the very first pass (the panel has not painted yet); we then
+      // re-run below once it has, so the flip decision is made on a real height.
+      const height = contentRef.current?.offsetHeight ?? 0;
+
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const flipUp =
+        side === "top" ||
+        (height > 0 && spaceBelow < height + GAP && rect.top > spaceBelow);
+
+      const next: Position = flipUp
+        ? { bottom: window.innerHeight - rect.top + GAP }
+        : { top: rect.bottom + GAP };
+
+      if (align === "end") next.right = Math.max(EDGE, window.innerWidth - rect.right);
+      else next.left = Math.max(EDGE, rect.left);
+
+      setPosition(next);
+    };
+
+    place();
+    // A second pass once the panel has a measurable height, so `flipUp` is decided
+    // on the real size rather than 0.
+    const raf = requestAnimationFrame(place);
+
+    // Capture phase: a scroll inside the TABLE does not bubble to window, and that is
+    // exactly the container this menu now escapes. Without capture, the panel would
+    // hang in mid-air when the table scrolls under it.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, align, side, triggerRef, contentRef]);
+
+  // Drop the stale rect when closed, so the next open never paints at the old spot.
+  useEffect(() => {
+    if (!open) setPosition(null);
+  }, [open]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const list = items(contentRef.current);
@@ -210,7 +298,10 @@ export function DropdownMenuContent({
     }
   };
 
-  return (
+  // No document during SSR/prerender; the panel only ever exists after interaction.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {open ? (
         <motion.div
@@ -226,19 +317,26 @@ export function DropdownMenuContent({
           animate="visible"
           exit="exit"
           onKeyDown={onKeyDown}
+          style={{
+            position: "fixed",
+            ...position,
+            // Hidden for the single frame before the rect is measured — otherwise the
+            // panel flashes at the top-left of the viewport before snapping into place.
+            visibility: position ? "visible" : "hidden",
+          }}
           className={cn(
-            "absolute z-50 min-w-52 overflow-hidden rounded-lg p-1",
+            "z-50 min-w-52 overflow-hidden rounded-lg p-1",
             "border-border bg-popover text-popover-foreground border shadow-lg",
             "focus-visible:outline-none",
-            side === "bottom" ? "top-full mt-2" : "bottom-full mb-2",
-            align === "end" ? "right-0 origin-top-right" : "left-0 origin-top-left",
+            align === "end" ? "origin-top-right" : "origin-top-left",
             className,
           )}
         >
           {children}
         </motion.div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 

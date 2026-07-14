@@ -106,12 +106,14 @@ export async function uploadFile(file: File, kind: FileKind): Promise<UploadedFi
   return (await response.json()) as UploadedFile;
 }
 
-/** Absolute-ise a storage URL: the backend may hand back a relative path. */
-export function absoluteUrl(url: string | null | undefined): string | undefined {
-  if (!url) return undefined;
-  if (/^https?:\/\//i.test(url)) return url;
-  return `${API_URL.replace(/\/$/, "")}${url.startsWith("/") ? "" : "/"}${url}`;
-}
+/**
+ * Absolute-ise a storage URL: the backend hands back paths relative to itself.
+ *
+ * Now an alias for the single shared implementation in `@/lib/media`. The old local
+ * copy also mishandled `blob:` and `data:` URLs — it treated them as relative and
+ * prefixed the API origin, corrupting the in-flight upload preview.
+ */
+export { assetUrl as absoluteUrl } from "@/lib/media";
 
 /**
  * GET a binary endpoint with the bearer token and save it to disk.
