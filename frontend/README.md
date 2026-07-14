@@ -19,7 +19,7 @@ npm run dev
 → <http://localhost:3000> · log in with `admin@creditsystem.local` / `ChangeMe123!`
 
 ```env
-NEXT_PUBLIC_API_URL=https://credit-system-1.onrender.com/graphql   # no trailing slash
+NEXT_PUBLIC_API_URL=https://credit-system-1.onrender.com   # no trailing slash
 ```
 
 ## Scripts
