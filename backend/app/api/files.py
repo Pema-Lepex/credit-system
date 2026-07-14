@@ -197,7 +197,9 @@ async def invoice_pdf(credit_id: str, ctx: CtxDep) -> StreamingResponse:
     from io import BytesIO
 
     try:
-        pdf = ReportService(ctx).invoice_pdf(credit_id)
+        # await, not a bare call: invoice_pdf is async (it fetches the business logo
+        # from storage). Without it, BytesIO gets a coroutine and the route 500s.
+        pdf = await ReportService(ctx).invoice_pdf(credit_id)
     except AppError as exc:
         raise HTTPException(status_code=exc.http_status, detail=exc.message) from exc
 
@@ -218,7 +220,7 @@ async def receipt_pdf(payment_id: str, ctx: CtxDep) -> StreamingResponse:
     from io import BytesIO
 
     try:
-        pdf = ReportService(ctx).receipt_pdf(payment_id)
+        pdf = await ReportService(ctx).receipt_pdf(payment_id)
     except AppError as exc:
         raise HTTPException(status_code=exc.http_status, detail=exc.message) from exc
 

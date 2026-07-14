@@ -150,6 +150,12 @@ export const businessSchema = z.object({
   emailFromName: z.string().max(120, "That name is too long"),
   emailReplyTo: optionalEmail,
   emailSignature: z.string().max(1000, "Keep the signature under 1000 characters"),
+  /**
+   * Left blank on every normal save: the form is never given the stored key, so an
+   * empty box means "unchanged", not "delete". Removal is an explicit button, which
+   * sends "" — see business-form.tsx.
+   */
+  w3formsAccessKey: z.string().max(255, "That key is too long"),
 });
 
 export type BusinessFormValues = z.infer<typeof businessSchema>;

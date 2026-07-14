@@ -116,6 +116,30 @@ class Business(BaseEntity, table=True):
     email_signature: str | None = Field(default=None, max_length=1000)
     brand_color: str = Field(default="#4F46E5", max_length=9)   # #RRGGBB[AA]
 
+    # --- W3Forms access key (per-business, NOT in the environment) -----------
+    #
+    # WHY THIS ONE CREDENTIAL LIVES IN THE DATABASE AND SMTP'S DOES NOT
+    # -----------------------------------------------------------------
+    # It looks inconsistent to keep SMTP_PASSWORD in the environment and this in a
+    # table. The difference is what the credential MEANS.
+    #
+    # An SMTP password is a login to a shared transport; the recipient is carried in
+    # the message. One relay can serve every business, so the secret is deployment
+    # config and belongs in the environment.
+    #
+    # A W3Forms access key has no recipient parameter at all -- the key IS the
+    # destination inbox. So a single key in the environment would deliver EVERY
+    # business's owner notifications to ONE inbox: the deployment owner's. Tenant A's
+    # overdue alerts would land in tenant B's mail. On a multi-tenant install that is
+    # not a preference, it is a tenancy leak, and no amount of env config fixes it.
+    # The key has to be per-business because the thing it identifies is per-business.
+    #
+    # It is never returned raw over the API (see graphql/mappers.py: the field is
+    # exposed masked, and is write-only). Falls back to settings.W3FORMS_ACCESS_KEY
+    # when a business has not set its own, which keeps a single-tenant install working
+    # with nothing but an env var.
+    w3forms_access_key: str | None = Field(default=None, max_length=255)
+
     # --- Retention / storage ------------------------------------------------
     retention_policy: RetentionPolicy = Field(default=RetentionPolicy.DAYS_30, max_length=16)
     retention_notifications_enabled: bool = Field(default=True)

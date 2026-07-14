@@ -55,11 +55,17 @@ EDITABLE_FIELDS: frozenset[str] = frozenset(
         "email_reply_to",
         "email_signature",
         "brand_color",
+        "w3forms_access_key",
         "retention_policy",
         "retention_notifications_enabled",
         "storage_quota_mb",
     }
 )
+
+# Credentials. Editable, but never echoed back and never written to the audit log in
+# the clear -- an audit trail that records secrets is a second place to steal them
+# from, and it is the one place nobody thinks to protect.
+SECRET_FIELDS: frozenset[str] = frozenset({"w3forms_access_key"})
 
 
 def unique_slug(session: Session, name: str) -> str:
@@ -276,11 +282,22 @@ class BusinessService(BaseService):
             # public identifier and changing it would break every link already out
             # in the world. Renaming the shop is not re-founding it.
 
+        # A credential has three states, and "" is not the same as absent. The client
+        # can never send the current key back (it is never given it), so without an
+        # explicit "clear" signal a key could be set but never removed. Empty string
+        # is that signal; the field then falls back to the environment key.
+        if "w3forms_access_key" in payload:
+            payload["w3forms_access_key"] = (payload["w3forms_access_key"] or "").strip() or None
+
         for key, value in payload.items():
             setattr(business, key, value)
         self.session.add(business)
 
         changes = diff_fields(before, payload)
+        # Record THAT the secret changed, never what it changed to or from.
+        for field in SECRET_FIELDS & changes.keys():
+            old, new = changes[field]
+            changes[field] = ["***" if old else None, "***" if new else None]
         self.audit(
             AuditAction.UPDATE,
             "business",

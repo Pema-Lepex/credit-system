@@ -1256,7 +1256,16 @@ def _footer_text(business: Business, due: date) -> str:
 
 
 def _money(value: Decimal, symbol: str) -> str:
-    return f"{symbol}{quantize_money(value):,.2f}"
+    """Render an amount with the business's own currency symbol.
+
+    The space is conditional because the convention differs by symbol shape: a
+    glyph binds tight ("$1,234.50", "€1,234.50"), while a lettered or dotted
+    abbreviation does not ("Nu. 1,234.50", "Rs. 1,234.50" -- "Nu.1,234.50" reads
+    like a typo). Anything ending in a letter or a full stop gets the space.
+    """
+    amount = f"{quantize_money(value):,.2f}"
+    gap = " " if symbol and (symbol[-1].isalpha() or symbol.endswith(".")) else ""
+    return f"{symbol}{gap}{amount}"
 
 
 def _trim(value: Decimal) -> str:

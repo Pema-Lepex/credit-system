@@ -270,7 +270,11 @@ class Mutation:
             business = ctx.session.get(Business, user.business_id) if user.business_id else None
             if business is not None:
                 try:
-                    await EmailService().send_raw(
+                    # EmailService requires the session. Omitting it raised a TypeError
+                    # that the except-block below swallowed, so password-reset mail was
+                    # never sent -- and never looked broken, because the response is
+                    # identical either way.
+                    await EmailService(ctx.session).send_raw(
                         ctx.session,
                         business,
                         to_address=user.email,
@@ -367,6 +371,9 @@ class Mutation:
                 email_reply_to=input.email_reply_to,
                 email_signature=input.email_signature,
                 brand_color=input.brand_color,
+                # _set() drops None but KEEPS "" -- which is exactly the three states
+                # this field needs: omitted => unchanged, "" => clear, value => replace.
+                w3forms_access_key=input.w3forms_access_key,
                 retention_policy=input.retention_policy,
                 retention_notifications_enabled=input.retention_notifications_enabled,
             )

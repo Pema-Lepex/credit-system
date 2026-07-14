@@ -30,6 +30,7 @@ from sqlmodel import Session
 from app.core.config import EmailProvider as ProviderKind
 from app.core.config import settings
 from app.email.base import EmailMessage, EmailProvider, EmailResult
+from app.email.providers.w3forms import W3FormsProvider
 from app.email.renderer import render_email, render_raw
 from app.models.business import Business
 from app.models.communication import EmailLog
@@ -81,7 +82,25 @@ def _capability_error(provider_name: str, to_address: str, kind: EmailTemplateKi
 class EmailService:
     def __init__(self, session: Session, provider: EmailProvider | None = None) -> None:
         self.session = session
+        # An explicitly injected provider (tests, or a caller that knows better) must
+        # never be silently swapped out by the per-business resolution below.
+        self._provider_injected = provider is not None
         self.provider = provider or get_provider()
+
+    def _provider_for(self, business: Business) -> EmailProvider:
+        """The transport to use for THIS business.
+
+        Only W3Forms varies per business, and only because its access key doubles as
+        the destination inbox -- see Business.w3forms_access_key. Every other provider
+        is a shared transport and is returned as-is. Constructing a W3FormsProvider is
+        cheap (it holds two strings and no connection state), so doing it per send
+        costs nothing worth caching.
+        """
+        if self._provider_injected or not isinstance(self.provider, W3FormsProvider):
+            return self.provider
+        if not business.w3forms_access_key:
+            return self.provider  # fall back to the env key (single-tenant install)
+        return W3FormsProvider(access_key=business.w3forms_access_key)
 
     # -- recipient classification -------------------------------------------
     def _is_owner_recipient(self, business: Business, to_address: str) -> bool:
@@ -156,16 +175,20 @@ class EmailService:
         """Guard, send, log. The single choke point every outbound email passes."""
         preview = msg.text_body or msg.html_body
 
+        # Resolve the transport for THIS business: with W3Forms the access key is the
+        # destination inbox, so each business sends through its own key.
+        provider = self._provider_for(business)
+
         # THE GUARD. Refuse loudly rather than pretend.
-        if not self.provider.can_send_to_arbitrary_recipients and not owner_recipient:
+        if not provider.can_send_to_arbitrary_recipients and not owner_recipient:
             result = EmailResult.failed(
-                self.provider.name, _capability_error(self.provider.name, msg.to_address, kind)
+                provider.name, _capability_error(provider.name, msg.to_address, kind)
             )
             logger.error(
                 "Blocked %s email to %s: provider %r cannot reach arbitrary recipients",
                 kind.value if kind else "raw",
                 msg.to_address,
-                self.provider.name,
+                provider.name,
             )
             self._log(
                 business_id=business.id,
@@ -182,10 +205,10 @@ class EmailService:
             return result
 
         try:
-            result = await self.provider.send(msg)
+            result = await provider.send(msg)
         except Exception as exc:  # noqa: BLE001 -- a provider bug must still be audited
-            logger.exception("Email provider %r raised", self.provider.name)
-            result = EmailResult.failed(self.provider.name, f"provider raised: {exc!r}")
+            logger.exception("Email provider %r raised", provider.name)
+            result = EmailResult.failed(provider.name, f"provider raised: {exc!r}")
 
         self._log(
             business_id=business.id,

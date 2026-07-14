@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Clock, Save } from "lucide-react";
+import { Clock, KeyRound, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm, type FieldPath } from "react-hook-form";
 
@@ -86,6 +86,7 @@ const FIELD_TABS: Record<FieldPath<BusinessFormValues>, TabId> = {
   emailFromName: "branding",
   emailReplyTo: "branding",
   emailSignature: "branding",
+  w3formsAccessKey: "branding",
 } as Record<FieldPath<BusinessFormValues>, TabId>;
 
 function toFormValues(business: BusinessSettings): BusinessFormValues {
@@ -116,6 +117,8 @@ function toFormValues(business: BusinessSettings): BusinessFormValues {
     emailFromName: business.emailFromName ?? "",
     emailReplyTo: business.emailReplyTo ?? "",
     emailSignature: business.emailSignature ?? "",
+    // Always blank: the server never gives us the key, so there is nothing to prefill.
+    w3formsAccessKey: "",
   };
 }
 
@@ -149,6 +152,13 @@ function toInput(values: BusinessFormValues, logoRemoved: boolean): BusinessUpda
     emailFromName: emptyToNull(values.emailFromName),
     emailReplyTo: emptyToNull(values.emailReplyTo),
     emailSignature: emptyToNull(values.emailSignature),
+    // NOT emptyToNull. A blank box means "I did not retype my key", and null would
+    // tell the server to erase it — so a user saving their phone number would silently
+    // lose their email key. Blank => omit the field entirely. Clearing is deliberate
+    // and goes through the Remove button, which sends "".
+    ...(values.w3formsAccessKey.trim()
+      ? { w3formsAccessKey: values.w3formsAccessKey.trim() }
+      : {}),
   };
 }
 
@@ -194,6 +204,7 @@ export function BusinessForm() {
       emailFromName: "",
       emailReplyTo: "",
       emailSignature: "",
+      w3formsAccessKey: "",
     },
   });
 
@@ -626,6 +637,89 @@ export function BusinessForm() {
               >
                 <Textarea rows={3} {...register("emailSignature")} disabled={!canEdit} />
               </FormField>
+
+              {/* ------------------------------------------- W3Forms access key */}
+              <div className="border-border sm:col-span-2 space-y-4 rounded-xl border p-4">
+                <div className="flex items-start gap-3">
+                  <KeyRound className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium">W3Forms access key</h3>
+                    <p className="text-muted-foreground text-sm">
+                      Your own key from{" "}
+                      <a
+                        href="https://web3forms.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2"
+                      >
+                        web3forms.com
+                      </a>
+                      . W3Forms delivers only to the inbox you registered it against, so this
+                      key is what makes <em>your</em> owner notifications reach{" "}
+                      <em>your</em> inbox rather than someone else&rsquo;s.
+                    </p>
+                  </div>
+                </div>
+
+                {/* The key is write-only, so there is nothing to prefill and nothing to
+                    show but its tail. This status line is the only feedback that a key
+                    is installed at all. */}
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Current key:</span>
+                  {business.hasW3formsAccessKey ? (
+                    <>
+                      <code className="bg-muted rounded px-2 py-0.5 font-mono text-xs">
+                        {business.w3formsAccessKeyHint}
+                      </code>
+                      {canEdit && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={isSubmitting}
+                          onClick={() => {
+                            // "" is the explicit "remove it" signal — distinct from a
+                            // blank box, which means "unchanged". Saved immediately so
+                            // deleting a credential is never left half-done in a form.
+                            updateBusiness.mutate(
+                              { w3formsAccessKey: "" },
+                              {
+                                onSuccess: () => toast.success("Access key removed"),
+                                onError: () => toast.error("Could not remove the key"),
+                              },
+                            );
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      None — falling back to the server&rsquo;s key, if one is set.
+                    </span>
+                  )}
+                </div>
+
+                <FormField
+                  label={business.hasW3formsAccessKey ? "Replace key" : "Add key"}
+                  description="Leave blank to keep the current key. It is never shown again after saving."
+                  error={errors.w3formsAccessKey?.message}
+                >
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste your W3Forms access key"
+                    {...register("w3formsAccessKey")}
+                    disabled={!canEdit}
+                  />
+                </FormField>
+
+                <p className="text-muted-foreground text-xs">
+                  Note: W3Forms has no recipient field, so it can only notify you — it
+                  cannot email your customers. Due-date reminders to customers need SMTP.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

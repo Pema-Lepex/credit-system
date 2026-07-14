@@ -66,6 +66,14 @@ export interface BusinessSettings {
   emailSignature: string | null;
   brandColor: string;
 
+  /**
+   * The W3Forms key is WRITE-ONLY: the API never sends it back, so there is no field
+   * here to hold it. These two are all the UI gets, and all it needs — whether a key
+   * is installed, and enough of its tail ("••••••••a1b2") to recognise which one.
+   */
+  hasW3formsAccessKey: boolean;
+  w3formsAccessKeyHint: string | null;
+
   retentionPolicy: RetentionPolicy;
   retentionNotificationsEnabled: boolean;
   storageQuotaMb: number;
@@ -108,6 +116,14 @@ export interface BusinessUpdateInput {
   emailReplyTo?: string | null;
   emailSignature?: string | null;
   brandColor?: string;
+  /**
+   * Three states, and they are not interchangeable:
+   *   undefined -> leave the stored key alone (the form never holds it, so this is
+   *                what an ordinary save sends)
+   *   ""        -> remove the stored key and fall back to the server's env var
+   *   "abc..."  -> replace the stored key
+   */
+  w3formsAccessKey?: string;
   retentionPolicy?: RetentionPolicy;
   retentionNotificationsEnabled?: boolean;
 }
@@ -148,6 +164,8 @@ const BUSINESS_FIELDS = /* GraphQL */ `
     emailReplyTo
     emailSignature
     brandColor
+    hasW3formsAccessKey
+    w3formsAccessKeyHint
     retentionPolicy
     retentionNotificationsEnabled
     storageQuotaMb

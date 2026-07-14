@@ -76,6 +76,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
+    # Without this, a cross-origin browser hides Content-Disposition from JS, so the
+    # download helpers cannot read the server's filename and every file saves under
+    # their fallback name. The bytes still arrive -- only the name is lost.
+    expose_headers=["Content-Disposition"],
 )
 
 

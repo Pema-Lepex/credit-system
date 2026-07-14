@@ -138,6 +138,18 @@ class BusinessUpdateInput:
     email_signature: str | None = None
     brand_color: str | None = None
 
+    # Write-only: the key goes in, and nothing ever reads it back out (BusinessType
+    # exposes only `hasW3formsAccessKey` and a masked hint).
+    #
+    # Three states, and the difference matters. Every other field here treats null as
+    # "not supplied", which would leave no way to REMOVE a key once set -- the UI
+    # cannot send the current value back, because it never had it.
+    #
+    #   null (omitted)  -> leave the stored key untouched
+    #   ""  (empty)     -> clear the stored key, fall back to the env var
+    #   "abc123..."     -> replace the stored key
+    w3forms_access_key: str | None = None
+
     retention_policy: RetentionPolicy | None = None  # type: ignore[valid-type]
     retention_notifications_enabled: bool | None = None
 

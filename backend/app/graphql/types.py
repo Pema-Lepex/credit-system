@@ -164,6 +164,14 @@ class BusinessType:
     email_signature: str | None
     brand_color: str
 
+    # The W3Forms key is WRITE-ONLY. There is deliberately no field here that returns
+    # it, because a credential that is never sent to a client cannot be stolen from
+    # one -- not by an XSS, not by a logged GraphQL response, not by a screenshot of
+    # the settings page. The UI needs only two things to render its state, and these
+    # are they: whether a key exists, and enough of it to recognise which one.
+    has_w3forms_access_key: bool
+    w3forms_access_key_hint: str | None  # e.g. "••••••••a1b2"
+
     retention_policy: RetentionPolicy  # type: ignore[valid-type]
     retention_notifications_enabled: bool
     storage_quota_mb: int

@@ -114,6 +114,21 @@ def to_user(session: Session, user: User) -> UserType:
     )
 
 
+def _mask_secret(secret: str | None, visible: int = 4) -> str | None:
+    """Render a credential as a recognisable stub, never as a usable value.
+
+    Only the LAST few characters survive, and only when the secret is long enough that
+    those characters are not most of it -- masking "abc" as "••c" would give away a
+    third of a short key for nothing. The point is to let an admin confirm WHICH key is
+    installed, not to let anyone reconstruct it.
+    """
+    if not secret:
+        return None
+    if len(secret) <= visible * 2:
+        return "•" * 8
+    return f"{'•' * 8}{secret[-visible:]}"
+
+
 def to_business(session: Session, business: Business) -> BusinessType:
     return BusinessType(
         id=strawberry.ID(business.id),
@@ -151,6 +166,9 @@ def to_business(session: Session, business: Business) -> BusinessType:
         email_reply_to=business.email_reply_to,
         email_signature=business.email_signature,
         brand_color=business.brand_color,
+        # Never the key itself -- only its existence and a recognisable tail.
+        has_w3forms_access_key=bool(business.w3forms_access_key),
+        w3forms_access_key_hint=_mask_secret(business.w3forms_access_key),
         retention_policy=business.retention_policy,
         retention_notifications_enabled=business.retention_notifications_enabled,
         storage_quota_mb=business.storage_quota_mb,

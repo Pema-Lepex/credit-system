@@ -49,8 +49,16 @@ class W3FormsProvider:
     name = "w3forms"
     can_send_to_arbitrary_recipients = False  # see module docstring -- this is load-bearing
 
-    def __init__(self) -> None:
-        self.access_key = settings.W3FORMS_ACCESS_KEY
+    def __init__(self, access_key: str | None = None) -> None:
+        """``access_key`` overrides the environment with a specific business's key.
+
+        This override is what makes W3Forms usable for more than one business. Because
+        the key IS the destination inbox (there is no recipient field), a single
+        environment key would funnel every tenant's owner notifications into one inbox.
+        EmailService passes the business's own key here; the env var remains the
+        fallback so a single-tenant install needs no database change.
+        """
+        self.access_key = access_key or settings.W3FORMS_ACCESS_KEY
         self.endpoint = settings.W3FORMS_ENDPOINT
 
     def _payload(self, msg: EmailMessage) -> dict[str, Any]:
