@@ -12,7 +12,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { gqlRequest } from "@/lib/graphql/client";
-import { DEFAULT_CURRENCY, DEFAULT_LOCALE, formatCurrency } from "@/lib/format";
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_CURRENCY_SYMBOL,
+  DEFAULT_LOCALE,
+  formatCurrency,
+} from "@/lib/format";
 import type { Money } from "@/types";
 
 const BUSINESS_CURRENCY_QUERY = /* GraphQL */ `
@@ -60,11 +65,13 @@ export function useCurrency(): CurrencyFormatter {
 
   const currency = data?.business.currency ?? DEFAULT_CURRENCY;
   const locale = normaliseLocale(data?.business.locale);
+  const symbol = data?.business.currencySymbol || DEFAULT_CURRENCY_SYMBOL;
 
   return {
     currency,
     locale,
-    symbol: data?.business.currencySymbol ?? "$",
-    format: (amount) => formatCurrency(amount, currency, locale),
+    symbol,
+    // The business's own symbol wins over Intl's per-locale guess — see format.ts.
+    format: (amount) => formatCurrency(amount, currency, locale, {}, symbol),
   };
 }

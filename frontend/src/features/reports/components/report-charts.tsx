@@ -114,7 +114,7 @@ export function TrendChart({ rows, money }: TrendChartProps) {
                   axisLine={false}
                   width={64}
                   tickFormatter={(value: number) =>
-                    formatCompactCurrency(value, money.currency, money.locale)
+                    formatCompactCurrency(value, money.currency, money.locale, money.symbol)
                   }
                 />
                 <Tooltip
@@ -129,7 +129,13 @@ export function TrendChart({ rows, money }: TrendChartProps) {
                   // Recharts types the value as ValueType|undefined; the parameter must
                   // be wider than `number` for the function to stay contravariant.
                   formatter={(value: unknown, name: unknown): [string, string] => [
-                    formatCurrency(toNumber(value as string | number), money.currency, money.locale),
+                    formatCurrency(
+                      toNumber(value as string | number),
+                      money.currency,
+                      money.locale,
+                      {},
+                      money.symbol,
+                    ),
                     String(name),
                   ]}
                 />
@@ -259,6 +265,8 @@ export function MethodChart({ byMethod, money }: MethodChartProps) {
                         toNumber(value as string | number),
                         money.currency,
                         money.locale,
+                        {},
+                        money.symbol,
                       ),
                       String(name),
                     ]}
@@ -282,7 +290,7 @@ export function MethodChart({ byMethod, money }: MethodChartProps) {
                     {entry.count}×
                   </span>
                   <span className="text-foreground tabular font-medium">
-                    {formatCurrency(entry.total, money.currency, money.locale)}
+                    {formatCurrency(entry.total, money.currency, money.locale, {}, money.symbol)}
                   </span>
                 </li>
               ))}
@@ -351,7 +359,7 @@ export function TopCustomersChart({ customers, money }: TopCustomersChartProps) 
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(value: number) =>
-                    formatCompactCurrency(value, money.currency, money.locale)
+                    formatCompactCurrency(value, money.currency, money.locale, money.symbol)
                   }
                 />
                 <YAxis
@@ -372,7 +380,13 @@ export function TopCustomersChart({ customers, money }: TopCustomersChartProps) 
                     color: colors.foreground,
                   }}
                   formatter={(value: unknown): [string, string] => [
-                    formatCurrency(toNumber(value as string | number), money.currency, money.locale),
+                    formatCurrency(
+                      toNumber(value as string | number),
+                      money.currency,
+                      money.locale,
+                      {},
+                      money.symbol,
+                    ),
                     "Outstanding",
                   ]}
                 />

@@ -168,15 +168,33 @@ export const LOCALES: readonly { value: string; label: string }[] = [
   { value: "zh-CN", label: "Chinese (Simplified)" },
 ];
 
+/**
+ * Symbols Intl will not give us under a Latin locale.
+ *
+ * Asked for BTN under en-US, Intl answers "BTN" — the ISO code, not a symbol. The
+ * only locale that yields "Nu." is dz-BT, which also renders the digits as Tibetan
+ * numerals, so we cannot just switch locale to get the symbol. These are the codes
+ * where the ISO fallback is not what a shopkeeper would ever write on a bill.
+ */
+const SYMBOL_OVERRIDES: Readonly<Record<string, string>> = {
+  BTN: "Nu.", // Bhutanese ngultrum
+  NPR: "Rs.", // Nepalese rupee
+  MVR: "Rf.", // Maldivian rufiyaa
+};
+
 /** The symbol a currency renders with, per the locale. Used to prefill the field. */
 export function symbolForCurrency(currency: string, locale: string): string {
+  const code = currency.trim().toUpperCase();
   try {
     const parts = new Intl.NumberFormat(locale || "en-US", {
       style: "currency",
-      currency,
+      currency: code,
     }).formatToParts(0);
-    return parts.find((p) => p.type === "currency")?.value ?? currency;
+    const symbol = parts.find((p) => p.type === "currency")?.value ?? code;
+    // Intl fell back to the ISO code => it has no symbol for this locale. Prefer ours.
+    if (symbol === code && SYMBOL_OVERRIDES[code]) return SYMBOL_OVERRIDES[code];
+    return symbol;
   } catch {
-    return currency;
+    return SYMBOL_OVERRIDES[code] ?? code;
   }
 }

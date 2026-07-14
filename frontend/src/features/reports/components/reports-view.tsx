@@ -202,7 +202,7 @@ function SummaryTiles({ report, money }: { report: ReportSummary; money: MoneyFo
               <dt className="text-muted-foreground text-sm font-medium">{tile.label}</dt>
               {/* Money is a string all the way here. formatCurrency takes it as-is. */}
               <dd className="text-foreground mt-1 truncate text-2xl font-semibold tabular">
-                {formatCurrency(tile.value, money.currency, money.locale)}
+                {formatCurrency(tile.value, money.currency, money.locale, {}, money.symbol)}
               </dd>
               <p className="text-muted-foreground mt-1 text-xs">{tile.hint}</p>
             </div>
@@ -316,10 +316,10 @@ function TopCustomersTable({
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell numeric>{formatNumber(customer.creditCount)}</TableCell>
                     <TableCell numeric>
-                      {formatCurrency(customer.totalCredit, money.currency, money.locale)}
+                      {formatCurrency(customer.totalCredit, money.currency, money.locale, {}, money.symbol)}
                     </TableCell>
                     <TableCell numeric>
-                      {formatCurrency(customer.outstanding, money.currency, money.locale)}
+                      {formatCurrency(customer.outstanding, money.currency, money.locale, {}, money.symbol)}
                     </TableCell>
                     <TableCell>
                       <Badge className={cn(score.className)}>
@@ -373,11 +373,11 @@ function RowsTable({ report, money }: { report: ReportSummary; money: MoneyForma
                   <TableCell className="font-medium">{row.label}</TableCell>
                   <TableCell numeric>{formatNumber(row.creditsCount)}</TableCell>
                   <TableCell numeric>
-                    {formatCurrency(row.creditsIssued, money.currency, money.locale)}
+                    {formatCurrency(row.creditsIssued, money.currency, money.locale, {}, money.symbol)}
                   </TableCell>
                   <TableCell numeric>{formatNumber(row.paymentsCount)}</TableCell>
                   <TableCell numeric>
-                    {formatCurrency(row.collected, money.currency, money.locale)}
+                    {formatCurrency(row.collected, money.currency, money.locale, {}, money.symbol)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -387,11 +387,11 @@ function RowsTable({ report, money }: { report: ReportSummary; money: MoneyForma
                 <TableCell className="font-semibold">Total</TableCell>
                 <TableCell numeric>{formatNumber(report.totalIssuedCount)}</TableCell>
                 <TableCell numeric>
-                  {formatCurrency(report.totalIssued, money.currency, money.locale)}
+                  {formatCurrency(report.totalIssued, money.currency, money.locale, {}, money.symbol)}
                 </TableCell>
                 <TableCell numeric>{formatNumber(report.totalCollectedCount)}</TableCell>
                 <TableCell numeric>
-                  {formatCurrency(report.totalCollected, money.currency, money.locale)}
+                  {formatCurrency(report.totalCollected, money.currency, money.locale, {}, money.symbol)}
                 </TableCell>
               </TableRow>
             </TableFooter>

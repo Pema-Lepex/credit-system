@@ -18,7 +18,9 @@ import {
 import type { Money } from "@/types";
 
 export const DEFAULT_LOCALE = "en-US";
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "BTN";
+/** Fallback only — the real symbol comes from the business's `currencySymbol`. */
+export const DEFAULT_CURRENCY_SYMBOL = "Nu.";
 
 /**
  * Money arrives from GraphQL as a *string* (Python Decimal -> String scalar) to
@@ -30,24 +32,47 @@ export function toNumber(value: Money | number | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * WHY THE SYMBOL IS AN EXPLICIT OVERRIDE, NOT LEFT TO Intl
+ * --------------------------------------------------------
+ * Intl only knows a currency's symbol *per locale*, and for BTN neither option is
+ * usable in a shop:
+ *
+ *   en-US + BTN -> "BTN 1,234.50"        (ISO code, not the symbol people read)
+ *   dz-BT + BTN -> "Nu. ༡,༢༣༤.༥༠"        (right symbol, Tibetan digits)
+ *
+ * So we take the grouping/decimals from the business's locale (en-US: Latin
+ * digits, "1,234.50") and splice in the business's own `currency_symbol` — the
+ * field the model has always had and the formatter never used. Pass no symbol and
+ * behaviour is exactly Intl's, so USD/EUR businesses are unaffected.
+ */
 export function formatCurrency(
   amount: Money | number | null | undefined,
   currency: string = DEFAULT_CURRENCY,
   locale: string = DEFAULT_LOCALE,
   options: Intl.NumberFormatOptions = {},
+  symbol?: string | null,
 ): string {
   const value = toNumber(amount);
   try {
-    return new Intl.NumberFormat(locale, {
+    const formatter = new Intl.NumberFormat(locale, {
       style: "currency",
       currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
       ...options,
-    }).format(value);
+    });
+    if (!symbol) return formatter.format(value);
+
+    // Replace only the currency part; every other part (digits, group separators,
+    // minus sign, compact suffix) keeps the locale's own rendering.
+    return formatter
+      .formatToParts(value)
+      .map((part) => (part.type === "currency" ? symbol : part.value))
+      .join("");
   } catch {
     // Unknown/invalid ISO-4217 code — still show the number rather than blow up.
-    return `${currency} ${value.toFixed(2)}`;
+    return `${symbol || currency} ${value.toFixed(2)}`;
   }
 }
 
@@ -56,12 +81,19 @@ export function formatCompactCurrency(
   amount: Money | number | null | undefined,
   currency: string = DEFAULT_CURRENCY,
   locale: string = DEFAULT_LOCALE,
+  symbol?: string | null,
 ): string {
-  return formatCurrency(amount, currency, locale, {
-    notation: "compact",
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 0,
-  });
+  return formatCurrency(
+    amount,
+    currency,
+    locale,
+    {
+      notation: "compact",
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0,
+    },
+    symbol,
+  );
 }
 
 export function formatNumber(

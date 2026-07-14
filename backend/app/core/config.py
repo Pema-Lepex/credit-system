@@ -19,9 +19,10 @@ from __future__ import annotations
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Repo root = .../credit-system  (this file is backend/app/core/config.py)
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -89,12 +90,19 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Comma-separated in the env: CORS_ORIGINS=http://localhost:3000,https://app.example.com
-    CORS_ORIGINS: list[str] = Field(
-    default_factory=lambda: [
-        "http://localhost:3000",
-        "https://credit-system-xi.vercel.app",
-    ]
-)
+    #
+    # NoDecode is load-bearing. pydantic-settings treats any complex field (a list
+    # here) as JSON and calls json.loads() on the raw env value INSIDE the settings
+    # source -- i.e. before any field_validator runs. So the documented
+    # comma-separated form raised SettingsError and took the whole app down at boot,
+    # for both a .env file and a real env var. NoDecode switches that off and hands
+    # the raw string to _split_origins below, which is what was meant to parse it.
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "https://credit-system-xi.vercel.app",
+        ]
+    )
 
     # --- Database -----------------------------------------------------------
     # Default: file-backed SQLite inside /database. To migrate:
@@ -139,6 +147,20 @@ class Settings(BaseSettings):
     # --- Scheduler ----------------------------------------------------------
     SCHEDULER_ENABLED: bool = True
     SCHEDULER_TIMEZONE: str = "UTC"
+
+    # Shared secret for the external cron endpoint (app/api/cron.py).
+    #
+    # WHY THIS EXISTS: APScheduler only fires while the process is alive, and a free
+    # host (Render, Fly's scale-to-zero) suspends the process when nobody is
+    # browsing. The suspended process runs no scheduler, so a due-date reminder whose
+    # hour passes while the app is asleep is MISSED, not delayed. An external cron
+    # service calling POST /api/cron/reminders hourly both wakes the process and runs
+    # the sweep, which restores the product's core feature on a free tier.
+    #
+    # Unset => the endpoint returns 503 and runs nothing. It fails CLOSED: an
+    # unauthenticated route that triggers email sends and a VACUUM is a gift to
+    # anyone who finds it.
+    CRON_SECRET: str | None = None
     # NOTE: there is deliberately no REMINDER_SCAN_HOUR here. The hour a reminder
     # goes out is a per-business decision (``Business.reminder_send_hour``, in that
     # business's own timezone) -- a single global hour would be wrong for every
@@ -163,8 +185,20 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
+        """Accept both `a,b` and `["a","b"]` -- deployment dashboards encourage either."""
         if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
+            raw = v.strip()
+            if raw.startswith("["):
+                import json
+
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    pass
+                else:
+                    if isinstance(parsed, list):
+                        return [str(o).strip() for o in parsed if str(o).strip()]
+            return [o.strip() for o in raw.split(",") if o.strip()]
         return v
 
     @property

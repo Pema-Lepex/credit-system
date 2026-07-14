@@ -13,7 +13,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { gqlRequest } from "@/lib/graphql/client";
-import { DEFAULT_CURRENCY, DEFAULT_LOCALE } from "@/lib/format";
+import { DEFAULT_CURRENCY, DEFAULT_CURRENCY_SYMBOL, DEFAULT_LOCALE } from "@/lib/format";
 import type {
   ID,
   ISODateTime,
@@ -229,7 +229,7 @@ export function useMoneyFormat(): MoneyFormat {
   return {
     currency: data?.currency ?? DEFAULT_CURRENCY,
     locale: data?.locale ?? DEFAULT_LOCALE,
-    symbol: data?.currencySymbol ?? "$",
+    symbol: data?.currencySymbol || DEFAULT_CURRENCY_SYMBOL,
     timezone: data?.timezone ?? "UTC",
   };
 }

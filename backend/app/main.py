@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from strawberry.fastapi import GraphQLRouter
 
+from app.api.cron import router as cron_router
 from app.api.files import router as files_router
 from app.core.config import Environment, settings
 from app.core.errors import AppError
@@ -100,6 +101,9 @@ graphql_router: GraphQLRouter = GraphQLRouter(
 )
 app.include_router(graphql_router, prefix=settings.GRAPHQL_PATH)
 app.include_router(files_router, prefix=settings.API_PREFIX)
+# External cron trigger. Needed because APScheduler dies with the process on a
+# scale-to-zero host -- see app/api/cron.py.
+app.include_router(cron_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health", tags=["system"])

@@ -80,9 +80,16 @@ class Business(BaseEntity, table=True):
     longitude: float | None = Field(default=None)
 
     # --- Localisation -------------------------------------------------------
-    currency: str = Field(default="USD", max_length=3)          # ISO-4217
-    currency_symbol: str = Field(default="$", max_length=8)
-    timezone: str = Field(default="UTC", max_length=64)         # IANA, e.g. Asia/Thimphu
+    # Defaults target the primary market (Bhutan). Every one of these is editable per
+    # business in Settings -> Localisation, so a shop elsewhere just changes them.
+    #
+    # currency_symbol is stored separately and is NOT cosmetic: Intl renders BTN as
+    # "BTN 1,234.50" under en-US, and only reaches "Nu." under dz-BT, which also
+    # switches the digits to Tibetan numerals. The frontend therefore takes the
+    # grouping from `locale` and the symbol from this column. See frontend/src/lib/format.ts.
+    currency: str = Field(default="BTN", max_length=3)          # ISO-4217
+    currency_symbol: str = Field(default="Nu.", max_length=8)
+    timezone: str = Field(default="Asia/Thimphu", max_length=64)  # IANA
     locale: str = Field(default="en", max_length=10)
     tax_percentage: Decimal = Field(default=Decimal("0"), max_digits=5, decimal_places=2)
 
