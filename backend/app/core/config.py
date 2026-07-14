@@ -39,13 +39,21 @@ class Environment(str, Enum):
 class StorageBackend(str, Enum):
     """Which object-storage driver to use.
 
-    ``local`` writes to ``uploads/`` on disk. It is the free default, but it does
-    NOT survive a Vercel/serverless deploy (ephemeral filesystem) -- see
-    docs/DEPLOYMENT.md. ``s3`` covers AWS S3, Cloudflare R2, Supabase Storage and
-    any other S3-compatible endpoint.
+    ``local``      writes to ``uploads/`` on disk. The zero-config default for
+                   development. It does NOT survive a redeploy on an ephemeral host
+                   (Render, Vercel, Fly): the container filesystem is rebuilt and
+                   every uploaded photo is gone. Never use it in production.
+    ``cloudinary`` the production default. Free tier, no card, and it serves images
+                   over a CDN with on-the-fly transforms. Survives redeploys.
+    ``s3``         AWS S3, Cloudflare R2, Supabase Storage, MinIO -- anything with an
+                   S3-compatible endpoint.
+
+    All three implement the same Protocol (app/storage/base.py), so no service,
+    resolver or model changes when you switch.
     """
 
     local = "local"
+    cloudinary = "cloudinary"
     s3 = "s3"
 
 
@@ -105,9 +113,17 @@ class Settings(BaseSettings):
     )
 
     # --- Database -----------------------------------------------------------
-    # Default: file-backed SQLite inside /database. To migrate:
-    #   Postgres : postgresql+psycopg://user:pass@host:5432/db
-    #   Turso    : sqlite+libsql://<db>.turso.io?authToken=...
+    # DEV default: file-backed SQLite in /database. Zero setup, and fine for one shop.
+    #
+    # PRODUCTION: set DATABASE_URL to a Postgres instance (Supabase / Neon / Render).
+    # A local SQLite file on an ephemeral host is destroyed on every redeploy, taking
+    # every customer and credit with it -- assert_production_ready() now refuses to
+    # boot on that combination rather than let it happen quietly.
+    #
+    # Paste the connection string exactly as your provider gives it to you. Providers
+    # hand out `postgres://…` or `postgresql://…`, and SQLAlchemy 2 maps the latter to
+    # psycopg2 (which is not installed) and rejects the former outright. It is
+    # normalised to `postgresql+psycopg://` for you -- see _normalise_database_url.
     DATABASE_URL: str = f"sqlite:///{ROOT_DIR / 'database' / 'app.db'}"
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 5          # ignored by SQLite, honoured by Postgres
@@ -121,6 +137,20 @@ class Settings(BaseSettings):
     IMAGE_MAX_DIMENSION: int = 1600            # long edge, px -- everything larger is downscaled
     IMAGE_QUALITY: int = 82                    # WebP/JPEG quality after compression
     THUMBNAIL_DIMENSION: int = 320             # long edge, px
+
+    # Cloudinary (only read when STORAGE_BACKEND=cloudinary).
+    #
+    # Either paste the single CLOUDINARY_URL from the dashboard --
+    #     cloudinary://<api_key>:<api_secret>@<cloud_name>
+    # -- or set the three parts separately. The single URL wins if both are present,
+    # because that is the value Cloudinary actually shows you.
+    CLOUDINARY_URL: str | None = None
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
+    # Every object is namespaced under this folder, so one Cloudinary account can host
+    # staging and production without them overwriting each other's files.
+    CLOUDINARY_FOLDER: str = "credit-system"
 
     # S3 / R2 / Supabase Storage (only read when STORAGE_BACKEND=s3)
     S3_ENDPOINT_URL: str | None = None
@@ -182,6 +212,35 @@ class Settings(BaseSettings):
     FIRST_SUPERADMIN_EMAIL: str = "admin@creditsystem.local"
     FIRST_SUPERADMIN_PASSWORD: str = "ChangeMe123!"
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalise_database_url(cls, v: object) -> object:
+        """Accept the connection string providers actually hand out.
+
+        Supabase, Render and Heroku give you one of:
+
+            postgres://user:pass@host:5432/db        <- SQLAlchemy 2 rejects this scheme
+            postgresql://user:pass@host:5432/db      <- routes to psycopg2, not installed
+
+        Both are normalised to `postgresql+psycopg://`, which is psycopg 3 (what we
+        install). Doing it here means nobody has to hand-edit a secret they copied out
+        of a dashboard, and a paste-as-given cannot fail at boot with a driver error
+        that says nothing about the real problem.
+
+        A URL that already names a driver (`postgresql+psycopg://`, `sqlite://`,
+        `sqlite+libsql://` for Turso) is passed through untouched.
+        """
+        if not isinstance(v, str):
+            return v
+        url = v.strip()
+
+        if url.startswith("postgres://"):
+            return "postgresql+psycopg://" + url[len("postgres://") :]
+        # `postgresql://` but with no +driver -- add ours. Leave `postgresql+…` alone.
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://") :]
+        return url
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
@@ -210,7 +269,14 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT is Environment.production
 
     def assert_production_ready(self) -> None:
-        """Fail fast rather than run production on dev defaults."""
+        """Fail fast rather than run production on dev defaults.
+
+        The two data-loss checks below are new and are the point of this guard. Both
+        configurations "work" -- the app boots, serves traffic and looks healthy -- and
+        then silently destroy every customer, credit and photo on the next redeploy,
+        because an ephemeral host rebuilds its filesystem. A crash at boot is a far
+        better outcome than discovering that a week later.
+        """
         if not self.is_production:
             return
         problems: list[str] = []
@@ -220,6 +286,19 @@ class Settings(BaseSettings):
             problems.append("DEBUG must be false in production")
         if self.EMAIL_PROVIDER is EmailProvider.console:
             problems.append("EMAIL_PROVIDER=console will not deliver real mail")
+
+        if self.is_sqlite:
+            problems.append(
+                "DATABASE_URL points at SQLite. On an ephemeral host (Render/Fly/"
+                "Vercel) the database file is destroyed on every redeploy and ALL DATA "
+                "IS LOST. Point DATABASE_URL at Postgres (Supabase/Neon/Render)"
+            )
+        if self.STORAGE_BACKEND is StorageBackend.local:
+            problems.append(
+                "STORAGE_BACKEND=local writes uploads to the container filesystem, "
+                "which is wiped on every redeploy. Use STORAGE_BACKEND=cloudinary (or s3)"
+            )
+
         if problems:
             raise RuntimeError("Refusing to start in production: " + "; ".join(problems))
 

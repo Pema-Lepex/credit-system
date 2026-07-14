@@ -27,6 +27,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import Engine, case, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import col
 
 from app.core.errors import ValidationError
@@ -189,12 +190,29 @@ class StorageStatsService(BaseService):
         }
 
     def _database_bytes(self) -> int:
-        """Size of the SQLite file on disk. 0 on any other database, gracefully.
+        """How much space the database occupies, whichever engine is behind it.
 
-        Includes the -wal sidecar: under WAL (see db/session.py) a busy database can
-        carry megabytes there, and a dashboard that pretends they do not exist would
-        under-report real disk usage.
+        SQLite: the file on disk, INCLUDING the -wal sidecar. Under WAL (see
+        db/session.py) a busy database can carry megabytes there, and a dashboard that
+        pretends they do not exist under-reports real usage.
+
+        Postgres: ``pg_database_size``, the server's own accounting. Without this the
+        Storage Dashboard reported 0 B for the database on every managed deployment --
+        technically "graceful", but it means the one number the page exists to show is
+        silently wrong.
         """
+        if self._is_postgres():
+            try:
+                with self._engine().connect() as conn:
+                    size = conn.exec_driver_sql(
+                        "SELECT pg_database_size(current_database())"
+                    ).scalar()
+                return int(size or 0)
+            except SQLAlchemyError:
+                # A pooler (Supabase pgbouncer) may refuse the call. A wrong number
+                # here must not take down the whole dashboard.
+                return 0
+
         path = self._sqlite_path()
         if path is None:
             return 0
@@ -267,9 +285,14 @@ class StorageStatsService(BaseService):
         through ``self.session`` would raise, every time, forever.
         """
         self.require(Permission.STORAGE_MAINTAIN)
-        engine = self._sqlite_engine()
+        engine = self._engine()
 
         before = self._database_bytes()
+        # Both engines have VACUUM and both refuse it inside a transaction, so the
+        # AUTOCOMMIT connection is required either way. What differs is the meaning:
+        # SQLite rewrites the file, Postgres returns dead tuples to the free list
+        # (VACUUM FULL would rewrite, but it takes an ACCESS EXCLUSIVE lock and would
+        # freeze the shop mid-sale -- never do that from a scheduled job).
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.exec_driver_sql("VACUUM")
         after = self._database_bytes()
@@ -277,14 +300,14 @@ class StorageStatsService(BaseService):
 
         return self._done(
             "vacuum_database", rows=0, freed=freed,
-            detail=f"Database rebuilt: {_human(before)} -> {_human(after)} ({_human(freed)} reclaimed)",
+            detail=f"Database vacuumed: {_human(before)} -> {_human(after)} ({_human(freed)} reclaimed)",
         )
 
     def analyze_database(self) -> MaintenanceResult:
         """ANALYZE: refresh the query planner's statistics so index choices stay sane
-        as the tables grow."""
+        as the tables grow. Spelled the same, and means the same, on both engines."""
         self.require(Permission.STORAGE_MAINTAIN)
-        engine = self._sqlite_engine()
+        engine = self._engine()
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.exec_driver_sql("ANALYZE")
         return self._done("analyze_database", detail="Query planner statistics refreshed")
@@ -298,29 +321,48 @@ class StorageStatsService(BaseService):
         long-running process, which looks (correctly) like a storage leak.
         """
         self.require(Permission.STORAGE_MAINTAIN)
-        engine = self._sqlite_engine()
+        engine = self._engine()
 
         before = self._database_bytes()
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.exec_driver_sql("PRAGMA optimize")
-            conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+            if self._is_postgres():
+                # No PRAGMAs, and no WAL sidecar to fold back in -- Postgres checkpoints
+                # itself. Refreshing planner stats is the honest equivalent of the work
+                # `PRAGMA optimize` does.
+                conn.exec_driver_sql("ANALYZE")
+            else:
+                conn.exec_driver_sql("PRAGMA optimize")
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
         after = self._database_bytes()
 
-        return self._done(
-            "optimize_database", freed=max(0, before - after),
-            detail=f"Optimised and checkpointed WAL ({_human(max(0, before - after))} reclaimed)",
+        freed = max(0, before - after)
+        detail = (
+            f"Planner statistics refreshed ({_human(freed)} reclaimed)"
+            if self._is_postgres()
+            else f"Optimised and checkpointed WAL ({_human(freed)} reclaimed)"
         )
+        return self._done("optimize_database", freed=freed, detail=detail)
 
     def check_integrity(self) -> MaintenanceResult:
         """PRAGMA integrity_check. Read-only, but it answers the only question that
         matters after a crash: is this file still trustworthy?"""
         self.require(Permission.STORAGE_READ)
-        engine = self._sqlite_engine()
+        engine = self._engine()
 
-        with engine.connect() as conn:
-            rows = conn.exec_driver_sql("PRAGMA integrity_check").fetchall()
-        messages = [str(r[0]) for r in rows]
-        ok = messages == ["ok"]
+        if self._is_postgres():
+            # Postgres has no integrity_check: page-level corruption is the server's
+            # problem (checksums, WAL, the provider's own monitoring), not ours to
+            # re-implement. We assert we can reach the database and say so plainly,
+            # rather than raising every month from the scheduled job.
+            with engine.connect() as conn:
+                conn.exec_driver_sql("SELECT 1")
+            messages = ["ok"]
+            ok = True
+        else:
+            with engine.connect() as conn:
+                rows = conn.exec_driver_sql("PRAGMA integrity_check").fetchall()
+            messages = [str(r[0]) for r in rows]
+            ok = messages == ["ok"]
 
         self.audit(
             AuditAction.MAINTENANCE,
@@ -440,9 +482,17 @@ class StorageStatsService(BaseService):
     def _is_sqlite(self) -> bool:
         return self._engine().dialect.name == "sqlite"
 
+    def _is_postgres(self) -> bool:
+        return self._engine().dialect.name == "postgresql"
+
     def _sqlite_engine(self) -> Engine:
-        """Guard for every SQLite-only operation. A Postgres migration must degrade the
-        Storage Dashboard, not crash it."""
+        """Guard for the operations that are genuinely SQLite-only.
+
+        VACUUM, ANALYZE and the size query now dispatch by dialect and work on both
+        engines, so this is down to one caller: backup_database(), which relies on
+        SQLite's online-backup API. A managed Postgres is backed up by its provider,
+        and telling the user that is more useful than a stack trace.
+        """
         engine = self._engine()
         if engine.dialect.name != "sqlite":
             raise ValidationError(

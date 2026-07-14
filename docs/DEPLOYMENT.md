@@ -10,18 +10,49 @@ system that silently never reminds anybody.
 | Piece | Goes on | Why |
 |---|---|---|
 | **Frontend** (`frontend/`) | **Vercel** — works as-is | It is a Next.js app that renders and calls an API. It touches no disk, runs no cron, holds no state. |
-| **Backend** (`backend/`) | **A persistent host** — Fly.io, Railway, Render, a $5 VPS, a Raspberry Pi | It runs a long-lived scheduler, writes files, and owns a database. |
-| **Database** | The backend's disk (SQLite) → later Postgres / Turso | See the migration ladder in §6. |
-| **Uploads** | The backend's disk → later R2 / S3 / Supabase | Same. |
+| **Backend** (`backend/`) | **A persistent host** — Render, Fly.io, Railway, a $5 VPS | It runs a long-lived scheduler and owns the connections to the database and object store. |
+| **Database** | **Managed Postgres** — Supabase / Neon / Render | `DATABASE_URL`. **Never SQLite in production** — see §1.1. |
+| **Uploads** | **Cloudinary** (or S3/R2) | `STORAGE_BACKEND=cloudinary`. **Never local disk in production** — see §1.1. |
 
 ```mermaid
 flowchart LR
     U["Browser"] --> V["Vercel<br/>Next.js frontend<br/>NEXT_PUBLIC_API_URL →"]
     V -.->|"GraphQL + REST"| B
-    U -->|"GraphQL + REST<br/>(the browser calls the API directly)"| B["Persistent host<br/>Fly / Railway / Render / VPS<br/>FastAPI + APScheduler"]
-    B --> D[("SQLite volume<br/>or Postgres")]
-    B --> F[("uploads volume<br/>or R2 / S3")]
+    U -->|"GraphQL + REST<br/>(the browser calls the API directly)"| B["Persistent host<br/>Render / Fly / Railway<br/>FastAPI + APScheduler"]
+    U -->|"images, direct from CDN"| C
+    B --> D[("Managed Postgres<br/>Supabase / Neon")]
+    B --> C[("Cloudinary<br/>object store + CDN")]
     B --> M["SMTP"]
+```
+
+---
+
+## 1.1 The two settings that silently destroy all your data
+
+A container's filesystem is **rebuilt on every deploy**. On Render, Fly, Railway and
+every serverless host, whatever was written to disk since the last deploy is gone —
+and on Render's free tier it also goes when the service idles down.
+
+So these two configurations are not "less ideal". They are **data loss on a timer**:
+
+| Setting | What happens |
+|---|---|
+| `DATABASE_URL=sqlite:///…` | The database file is inside the container. Every redeploy destroys **every customer, credit and payment**. |
+| `STORAGE_BACKEND=local` | Uploads are written to `uploads/`, inside the container. Every redeploy destroys **every photo, logo and receipt**. |
+
+Both *appear* to work. The app boots, serves traffic, and looks healthy — right up
+until the next deploy, when the data is simply not there. Nothing errors, because
+nothing is wrong: you told it to write to a disk that does not persist.
+
+**The app now refuses to boot on either.** With `ENVIRONMENT=production`,
+`assert_production_ready()` raises and the process exits. A crash at deploy time is a
+far better outcome than finding out a week later that the shop's ledger is empty.
+
+The fix is two environment variables, and nothing else in the codebase changes:
+
+```bash
+DATABASE_URL=postgres://…      # Supabase / Neon / Render Postgres
+STORAGE_BACKEND=cloudinary     # + CLOUDINARY_URL
 ```
 
 ---
@@ -312,7 +343,9 @@ Run through this before you point a real shop at it.
 - [ ] **`CORS_ORIGINS`** contains your real frontend origin and nothing you do not control.
 - [ ] **HTTPS everywhere.** Fly/Railway/Render terminate TLS for you. On a VPS use Caddy or Certbot. Tokens travel in an `Authorization` header; plain HTTP hands them to anyone on the path.
 - [ ] **Exactly one instance runs the scheduler.** One machine, or `SCHEDULER_ENABLED=false` on all but one.
-- [ ] **The database and uploads are on a persistent volume**, not the container filesystem.
+- [ ] **`DATABASE_URL` points at Postgres**, not SQLite. *The app refuses to boot in production on SQLite* — on a container host the file is destroyed on every redeploy, taking every customer and credit with it (§1.1).
+- [ ] **`STORAGE_BACKEND=cloudinary`** (or `s3`), not `local`. *The app refuses to boot in production on local storage* — same reason: `uploads/` lives in the container (§1.1).
+- [ ] **`CLOUDINARY_URL` is set** if `STORAGE_BACKEND=cloudinary`. The driver refuses to start without credentials rather than silently falling back to a disk that does not persist.
 - [ ] **Backups are scheduled** — §8. The app gives you the endpoint; it does not run the cron for you.
 - [ ] **`/health` is wired to an uptime monitor.** It reports `database`, `scheduler`, `storage` and `email` — a `"scheduler": "stopped"` is the alert you actually care about.
 - [ ] **Change the seeded admin password**, or do not seed at all in production and register the first business through the UI.
@@ -320,60 +353,113 @@ Run through this before you point a real shop at it.
 
 ---
 
-## 6. The migration ladder
+## 6. Going to production: Postgres + Cloudinary
 
-Every rung is an environment-variable change plus, at most, one `pip install`. That is
-the whole point of the abstractions in `db/session.py`, `storage/base.py` and
-`email/base.py`. Climb them when the pain arrives, not before.
+These two are **not optional** on a container host — see §1.1. Neither changes a single
+line of application code: the database goes through `db/session.py`, and storage goes
+through the `StorageBackend` Protocol in `storage/base.py`. No service, resolver or
+model knows which one is behind it.
 
-### Rung 1 — SQLite → Postgres (Supabase / Neon free tier)
+### 6.1 Database → Postgres (Supabase / Neon / Render)
+
+**Why Postgres and not Turso.** Turso is libSQL — SQLite semantics with replication —
+and it is a reasonable product. But SQLModel, SQLAlchemy 2 and Alembic support Postgres
+as a first-class dialect and libSQL only through a third-party dialect
+(`sqlalchemy-libsql`) whose Alembic support is thin. This app *migrates schemas* and
+*pools connections*, and Postgres does both properly. Supabase and Neon both have a free
+tier with no card. (`DATABASE_URL` still accepts a `sqlite+libsql://` URL untouched, so
+Turso remains available if you want it.)
 
 ```bash
-pip install "psycopg[binary]"
+pip install "psycopg[binary]"   # already in requirements.txt
 ```
 
 ```env
-DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname
+# Paste the URL EXACTLY as the provider prints it. Both `postgres://` and
+# `postgresql://` are rewritten to `postgresql+psycopg://` for you (config.py), because
+# SQLAlchemy 2 rejects the first and routes the second to psycopg2, which is not installed.
+DATABASE_URL=postgres://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres
 DB_POOL_SIZE=5
 DB_MAX_OVERFLOW=10
 ```
 
-`db/session.py` already branches: on a non-SQLite URL it builds a real connection pool
-with `pool_pre_ping=True` (which transparently recycles connections a managed provider
-has dropped) and skips every SQLite `PRAGMA`. `MoneyType` is `BigInteger` on both, so
-**no data conversion is needed** — the money model was chosen for exactly this.
-
-What changes for you:
-
-- The **Storage Dashboard degrades gracefully.** `VACUUM`, `ANALYZE`, `PRAGMA optimize`,
-  the integrity check and the database backup all raise a clear "this operation is
-  specific to SQLite; your provider handles it" `ValidationError` instead of crashing.
-  Database size reports as 0.
-- Migrating **existing data** is on you — the schema is created by
-  `SQLModel.metadata.create_all()`, but the rows are not copied. Use `pgloader`, or dump
-  and reload. **Do this before you have data you care about.**
-
-### Rung 2 — SQLite → Turso (libSQL)
-
-Keeps SQLite semantics, adds replication and durability.
+Then create the schema:
 
 ```bash
-pip install sqlalchemy-libsql
+alembic upgrade head
 ```
+
+Notes, all verified against a real Postgres:
+
+- **Money is exact.** `MoneyType` stores integer minor units in a `BigInteger`, so
+  amounts move across byte-for-byte. No float drift, no conversion step.
+- **`db/session.py` already branches**: a non-SQLite URL builds a real connection pool
+  with `pool_pre_ping=True` (which transparently recycles connections a managed provider
+  dropped) and skips every SQLite `PRAGMA`.
+- **The Storage Dashboard keeps working.** `VACUUM`, `ANALYZE`, `optimize` and the
+  integrity check now dispatch by dialect and run natively on Postgres; database size
+  comes from `pg_database_size`. Only **Download backup** is SQLite-only (it uses
+  SQLite's online-backup API) — it returns a clear message pointing you at your
+  provider's backups, which are better than anything this app could produce.
+
+#### Moving existing data across
+
+The schema is created by Alembic; the **rows are not copied for you**. One command:
+
+```bash
+# 1. create the schema on the new database
+DATABASE_URL="postgres://…" alembic upgrade head
+
+# 2. dry run — counts rows, writes nothing
+python scripts/migrate_sqlite_to_postgres.py \
+    --source sqlite:///../database/app.db \
+    --target "postgres://…" --dry-run
+
+# 3. do it
+python scripts/migrate_sqlite_to_postgres.py \
+    --source sqlite:///../database/app.db \
+    --target "postgres://…"
+```
+
+It copies every table in **foreign-key order** (taken from SQLAlchemy's own metadata, so
+it stays correct as the schema grows) inside **one transaction** — either every row
+lands or none do, so a failure never leaves you with a half-migrated database.
+
+### 6.2 Uploads → Cloudinary
+
+Free tier, no card, CDN-backed, and it survives redeploys.
+
+1. Sign up at [cloudinary.com](https://cloudinary.com).
+2. The dashboard shows one value — copy it.
 
 ```env
-DATABASE_URL=sqlite+libsql://your-db.turso.io?authToken=eyJ...
+STORAGE_BACKEND=cloudinary
+CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
+CLOUDINARY_FOLDER=credit-system     # namespaces staging vs production
 ```
 
-`settings.is_sqlite` returns `True` for this URL (it starts with `sqlite`), so the
-SQLite tuning branch stays active. Verify `PRAGMA journal_mode=WAL` does not error
-against your Turso endpoint before you commit to it — the file-based `VACUUM` and
-backup paths in `StorageStatsService` assume a local file and will not work against a
-remote libSQL server.
+That is the entire change. The driver (`storage/cloudinary.py`) implements the same
+Protocol as local disk, so uploads, thumbnails, the orphan sweep and the Storage
+Dashboard all keep working.
 
-### Rung 3 — Local disk → Cloudflare R2 / S3 / Supabase Storage
+Two behaviours worth knowing:
 
-The one you will want first, because it is what makes the backend stateless.
+- **`url_for()` returns an absolute `https://` CDN URL**, where local storage returned a
+  path relative to the API. The frontend already handles both (`lib/media.ts` passes
+  absolute URLs through untouched), so nothing changes there — and images are now served
+  by Cloudinary's CDN rather than by your API process.
+- **Images are not re-compressed.** Our own pipeline (`storage/images.py`) already
+  resizes to `IMAGE_MAX_DIMENSION` and encodes WebP at `IMAGE_QUALITY`; the driver
+  uploads those exact bytes rather than letting Cloudinary re-encode them.
+
+Existing local uploads are **not** migrated — re-upload them, or write a one-off script
+that walks `uploads/` and calls `CloudinaryStorage.write(key, data, content_type)` with
+each file's existing `storage_key` (that key is what `FileAsset` already points at, so
+preserving it is all that is required).
+
+### 6.3 Alternative: S3 / Cloudflare R2 / Supabase Storage
+
+Also supported, if you would rather not use Cloudinary.
 
 ```bash
 pip install boto3

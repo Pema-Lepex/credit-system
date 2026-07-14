@@ -55,11 +55,20 @@ _backend: StorageBackend | None = None
 
 
 def get_backend() -> StorageBackend:
-    """Resolve the configured driver. Cached -- the S3 client is expensive to build."""
+    """Resolve the configured driver. Cached -- clients are expensive to build.
+
+    Imports are lazy on purpose: boto3 and the cloudinary SDK are only needed by the
+    deployment that actually selected them, so a local dev install does not pay for
+    either, and a missing optional dependency surfaces only if you ask for that driver.
+    """
     global _backend
     if _backend is None:
-        if settings.STORAGE_BACKEND is BackendKind.s3:
-            from app.storage.s3 import S3Storage  # lazy: boto3 is optional
+        if settings.STORAGE_BACKEND is BackendKind.cloudinary:
+            from app.storage.cloudinary import CloudinaryStorage
+
+            _backend = CloudinaryStorage()
+        elif settings.STORAGE_BACKEND is BackendKind.s3:
+            from app.storage.s3 import S3Storage
 
             _backend = S3Storage()
         else:
