@@ -89,7 +89,12 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Comma-separated in the env: CORS_ORIGINS=http://localhost:3000,https://app.example.com
-    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    CORS_ORIGINS: list[str] = Field(
+    default_factory=lambda: [
+        "http://localhost:3000",
+        "https://credit-system-xi.vercel.app",
+    ]
+)
 
     # --- Database -----------------------------------------------------------
     # Default: file-backed SQLite inside /database. To migrate:
