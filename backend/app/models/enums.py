@@ -1,0 +1,195 @@
+"""Domain enumerations.
+
+Stored as strings, not integers: a human reading the SQLite file (or a CSV export)
+should see ``PARTIALLY_PAID``, not ``2``. Costs a few bytes per row, saves hours of
+debugging and makes exports self-describing.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+
+
+class CreditStatus(str, Enum):
+    """Lifecycle of a credit record.
+
+    OVERDUE is *derived*, not hand-set: the daily scheduler promotes PENDING and
+    PARTIALLY_PAID records past their due date. Keeping it as a stored column (as
+    opposed to computing it in every query) is what lets the dashboard filter and
+    index on it cheaply.
+    """
+
+    PENDING = "PENDING"
+    PARTIALLY_PAID = "PARTIALLY_PAID"
+    PAID = "PAID"
+    OVERDUE = "OVERDUE"
+    CANCELLED = "CANCELLED"
+
+    @classmethod
+    def open_statuses(cls) -> tuple[CreditStatus, ...]:
+        """Statuses that still owe money -- i.e. count toward receivables."""
+        return (cls.PENDING, cls.PARTIALLY_PAID, cls.OVERDUE)
+
+    @classmethod
+    def closed_statuses(cls) -> tuple[CreditStatus, ...]:
+        """Terminal statuses -- eligible for archival under the retention policy."""
+        return (cls.PAID, cls.CANCELLED)
+
+
+class CustomerStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    BLOCKED = "BLOCKED"      # owner has cut off further credit
+    DEFAULTED = "DEFAULTED"  # written off
+
+
+class PaymentMethod(str, Enum):
+    CASH = "CASH"
+    BANK_TRANSFER = "BANK_TRANSFER"
+    CARD = "CARD"
+    MOBILE_MONEY = "MOBILE_MONEY"
+    CHEQUE = "CHEQUE"
+    OTHER = "OTHER"
+
+
+class ItemKind(str, Enum):
+    PRODUCT = "PRODUCT"
+    SERVICE = "SERVICE"
+    CUSTOM = "CUSTOM"  # free-text line item not in the catalog
+
+
+class ReminderChannel(str, Enum):
+    """SMS/WHATSAPP are declared now and dispatch through the same provider
+    interface as EMAIL. Adding them later is a new provider class, not a schema
+    change -- which is exactly what "future-ready" has to mean to be worth
+    anything."""
+
+    EMAIL = "EMAIL"
+    SMS = "SMS"
+    WHATSAPP = "WHATSAPP"
+    IN_APP = "IN_APP"
+
+
+class ReminderAudience(str, Enum):
+    CUSTOMER = "CUSTOMER"
+    OWNER = "OWNER"
+    BOTH = "BOTH"
+
+
+class ReminderStatus(str, Enum):
+    SCHEDULED = "SCHEDULED"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"    # e.g. credit was paid before the reminder fired
+    CANCELLED = "CANCELLED"
+
+
+class EmailTemplateKind(str, Enum):
+    REMINDER = "REMINDER"
+    RECEIPT = "RECEIPT"
+    PAYMENT_CONFIRMATION = "PAYMENT_CONFIRMATION"
+    WELCOME = "WELCOME"
+    ADMIN_NOTIFICATION = "ADMIN_NOTIFICATION"
+    OVERDUE_NOTICE = "OVERDUE_NOTICE"
+    DATA_DELETION_WARNING = "DATA_DELETION_WARNING"
+
+
+class NotificationKind(str, Enum):
+    EMAIL_SENT = "EMAIL_SENT"
+    REMINDER_SENT = "REMINDER_SENT"
+    PAYMENT_RECEIVED = "PAYMENT_RECEIVED"
+    CREDIT_OVERDUE = "CREDIT_OVERDUE"
+    DATA_DELETION_WARNING = "DATA_DELETION_WARNING"
+    EXPORT_READY = "EXPORT_READY"
+    STORAGE_WARNING = "STORAGE_WARNING"
+    SYSTEM = "SYSTEM"
+
+
+class NotificationState(str, Enum):
+    UNREAD = "UNREAD"
+    READ = "READ"
+    ARCHIVED = "ARCHIVED"
+
+
+class FileKind(str, Enum):
+    """Doubles as the uploads/ subfolder name -- see StorageService."""
+
+    BUSINESS_LOGO = "BUSINESS_LOGO"
+    USER_AVATAR = "USER_AVATAR"
+    CUSTOMER_PHOTO = "CUSTOMER_PHOTO"
+    PRODUCT_IMAGE = "PRODUCT_IMAGE"
+    INVOICE = "INVOICE"
+    RECEIPT = "RECEIPT"
+    CREDIT_PHOTO = "CREDIT_PHOTO"
+    EXPORT = "EXPORT"
+    TEMP = "TEMP"
+
+
+class RetentionPolicy(str, Enum):
+    DAYS_30 = "DAYS_30"
+    DAYS_60 = "DAYS_60"
+    DAYS_90 = "DAYS_90"
+    NEVER = "NEVER"
+
+    @property
+    def days(self) -> int | None:
+        """``None`` means "never delete"."""
+        return {
+            RetentionPolicy.DAYS_30: 30,
+            RetentionPolicy.DAYS_60: 60,
+            RetentionPolicy.DAYS_90: 90,
+            RetentionPolicy.NEVER: None,
+        }[self]
+
+
+class ArchiveState(str, Enum):
+    """The deletion pipeline. Data is never destroyed in one step.
+
+    ARCHIVED -> (7/3/1-day warnings) -> PENDING_DELETION -> DELETED
+    The owner can POSTPONE from any pre-DELETED state, or RESTORE the records.
+    """
+
+    ARCHIVED = "ARCHIVED"
+    PENDING_DELETION = "PENDING_DELETION"
+    POSTPONED = "POSTPONED"
+    RESTORED = "RESTORED"
+    DELETED = "DELETED"
+
+
+class ExportFormat(str, Enum):
+    CSV = "CSV"
+    XLSX = "XLSX"
+    JSON = "JSON"
+    PDF = "PDF"
+
+
+class ExportState(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    READY = "READY"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"   # file removed by the daily cleanup job after EXPORT_TTL_HOURS
+
+
+class ReportPeriod(str, Enum):
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+    CUSTOM = "CUSTOM"
+
+
+class AuditAction(str, Enum):
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"          # soft delete
+    PURGE = "PURGE"            # irreversible -- always audited (spec requirement)
+    LOGIN = "LOGIN"
+    LOGIN_FAILED = "LOGIN_FAILED"
+    LOGOUT = "LOGOUT"
+    PASSWORD_RESET = "PASSWORD_RESET"
+    EXPORT = "EXPORT"
+    ARCHIVE = "ARCHIVE"
+    RESTORE = "RESTORE"
+    MAINTENANCE = "MAINTENANCE"
+    REMINDER = "REMINDER"

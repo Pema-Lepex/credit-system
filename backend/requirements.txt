@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# Backend dependencies
+#
+# Pinned to minimum-compatible versions rather than exact pins so the project
+# stays installable on new Python releases. Exact pins live in requirements.lock
+# (generate with `pip freeze`) for reproducible deployments.
+# ---------------------------------------------------------------------------
+
+# --- Web framework -----------------------------------------------------------
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12          # multipart/form-data -> file uploads
+
+# --- GraphQL -----------------------------------------------------------------
+strawberry-graphql[fastapi]>=0.253.0
+
+# --- Database / ORM ----------------------------------------------------------
+# SQLModel sits on SQLAlchemy 2.x. We only ever talk to SQLAlchemy through the
+# session/engine factory in app/db/session.py, so swapping SQLite -> Postgres is
+# a DATABASE_URL change plus installing the matching driver (see docs).
+sqlmodel>=0.0.22
+sqlalchemy>=2.0.36
+alembic>=1.14.0                   # schema migrations
+
+# --- Validation / settings ---------------------------------------------------
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+email-validator>=2.2.0
+
+# --- Auth / security ---------------------------------------------------------
+pyjwt>=2.10.0
+# passlib removed: unmaintained since 2020 and its bcrypt backend crashes on
+# import against bcrypt>=4.1. app/core/security.py calls bcrypt directly.
+bcrypt>=4.2.0
+
+# --- Scheduling --------------------------------------------------------------
+apscheduler>=3.11.0
+
+# --- HTTP client (W3Forms / webhooks) ----------------------------------------
+httpx>=0.28.0
+
+# --- Files / media -----------------------------------------------------------
+pillow>=11.0.0                    # image compression + thumbnails
+aiofiles>=24.1.0
+
+# --- Exports / reports -------------------------------------------------------
+openpyxl>=3.1.5                   # .xlsx
+reportlab>=4.2.5                  # PDF invoices/receipts (generated on demand)
+
+# --- Utilities ---------------------------------------------------------------
+python-slugify>=8.0.4
+tzdata>=2024.2                    # IANA timezones on systems without a tz db
+
+# --- Dev / test --------------------------------------------------------------
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+ruff>=0.8.0
+mypy>=1.13.0

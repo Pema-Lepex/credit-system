@@ -1,0 +1,431 @@
+/* =============================================================================
+   Design system — Credit Management System
+   -----------------------------------------------------------------------------
+   Tailwind v4 is CSS-first: tokens live here, NOT in tailwind.config.ts (v4 does
+   not read a theme block from JS config). `@theme inline` re-exports each token
+   as a `--color-*` so utilities (`bg-card`, `text-muted-foreground`) resolve
+   through the CSS variable and therefore re-resolve under `.dark` for free.
+
+   Colour: refined indigo/violet primary, near-black (#0A0A0B) dark surfaces,
+   true-neutral zinc grays. Restraint over colour — Linear/Vercel, not Bootstrap.
+
+   ACCESSIBILITY: every text/background pair below was contrast-checked with the
+   WCAG 2.1 relative-luminance formula. Measured ratios are in the comments; all
+   body text pairs are >= 4.5:1 and all non-text UI (rings, solid chips, chart
+   series) are >= 3:1. Do not swap a colour without re-running the numbers.
+   ========================================================================== */
+
+@import "tailwindcss";
+
+/* next-themes runs with attribute="class", so dark mode is a class, not a media
+   query — the user's explicit choice must beat the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* -----------------------------------------------------------------------------
+   LIGHT
+   -------------------------------------------------------------------------- */
+:root {
+  --background: #ffffff;
+  --foreground: #09090b; /* 19.90:1 on background */
+
+  --card: #ffffff;
+  --card-foreground: #09090b; /* 19.90:1 */
+  --popover: #ffffff;
+  --popover-foreground: #09090b; /* 19.90:1 */
+
+  --muted: #f4f4f5;
+  --muted-foreground: #52525b; /*  7.73:1 on background, 7.03:1 on muted */
+
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #4f46e5; /*  6.29:1 on background (non-text min 3:1) */
+
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff; /*  6.29:1 on primary */
+  --primary-hover: #4338ca;
+
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b; /* 16.12:1 on secondary */
+
+  --accent: #eef2ff;
+  --accent-foreground: #3730a3; /*  8.88:1 on accent */
+
+  /* Solid status colours — for filled buttons/chips. Their -foreground is the
+     text placed ON the solid fill. */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff; /*  4.83:1 */
+  --success: #15803d;
+  --success-foreground: #ffffff; /*  5.02:1 */
+  --warning: #b45309;
+  --warning-foreground: #ffffff; /*  5.02:1 */
+  --info: #2563eb;
+  --info-foreground: #ffffff; /*  5.17:1 */
+
+  /* Soft status colours — tinted surfaces for badges/alerts, and the ONLY colours
+     allowed for coloured *text on the page* (inline field errors, status labels).
+     Solid --destructive as text on --background is 4.83:1 in light but only
+     4.10:1 in dark; the soft foregrounds clear 4.5:1 on page, card and tint
+     alike. Splitting the two roles is what makes both pass. */
+  --destructive-soft: #fef2f2;
+  --destructive-soft-foreground: #b91c1c; /* 6.47 page / 5.91 tint */
+  --success-soft: #f0fdf4;
+  --success-soft-foreground: #15803d; /* 5.02 page / 4.79 tint */
+  --warning-soft: #fffbeb;
+  --warning-soft-foreground: #b45309; /* 5.02 page / 4.84 tint */
+  --info-soft: #eff6ff;
+  --info-soft-foreground: #1d4ed8; /* 6.70 page / 6.16 tint */
+  --primary-soft: #eef2ff;
+  --primary-soft-foreground: #4338ca; /* 7.90 page / 7.07 tint */
+  --neutral-soft: #f4f4f5;
+  --neutral-soft-foreground: #3f3f46; /* 10.44 page / 9.50 tint */
+
+  /* Chart series — all >= 3:1 against the page (WCAG non-text). */
+  --chart-1: #4f46e5; /* 6.29:1 */
+  --chart-2: #0284c7; /* 4.10:1 */
+  --chart-3: #059669; /* 3.77:1 */
+  --chart-4: #d97706; /* 3.19:1 */
+  --chart-5: #db2777; /* 4.60:1 */
+
+  /* Glass + mesh surfaces */
+  --glass-bg: rgb(255 255 255 / 0.72);
+  --glass-border: rgb(9 9 11 / 0.08);
+  --mesh-1: rgb(79 70 229 / 0.1);
+  --mesh-2: rgb(219 39 119 / 0.07);
+  --mesh-3: rgb(2 132 199 / 0.08);
+
+  /* Radius — cards land at 14px, the Linear/Stripe register. */
+  --radius-xs: 0.375rem; /*  6px */
+  --radius-sm: 0.5rem; /*  8px */
+  --radius-md: 0.625rem; /* 10px */
+  --radius-lg: 0.875rem; /* 14px — default card */
+  --radius-xl: 1rem; /* 16px */
+  --radius-2xl: 1.25rem; /* 20px */
+
+  /* Soft multi-layer shadows. Two layers (tight contact + broad ambient) read as
+     depth; a single blurred drop reads as a smudge. */
+  --shadow-xs: 0 1px 2px 0 rgb(9 9 11 / 0.05);
+  --shadow-sm: 0 1px 2px -1px rgb(9 9 11 / 0.08), 0 1px 3px 0 rgb(9 9 11 / 0.06);
+  --shadow-md:
+    0 2px 4px -2px rgb(9 9 11 / 0.06), 0 4px 8px -2px rgb(9 9 11 / 0.08),
+    0 0 0 1px rgb(9 9 11 / 0.03);
+  --shadow-lg:
+    0 4px 6px -4px rgb(9 9 11 / 0.07), 0 12px 24px -6px rgb(9 9 11 / 0.1),
+    0 0 0 1px rgb(9 9 11 / 0.03);
+  --shadow-xl:
+    0 8px 12px -6px rgb(9 9 11 / 0.08), 0 24px 48px -12px rgb(9 9 11 / 0.14),
+    0 0 0 1px rgb(9 9 11 / 0.04);
+  --shadow-glow: 0 0 0 1px rgb(79 70 229 / 0.18), 0 8px 24px -8px rgb(79 70 229 / 0.35);
+}
+
+/* -----------------------------------------------------------------------------
+   DARK — near-black, never pure black: #000 collapses the elevation language and
+   blooms on OLED.
+   -------------------------------------------------------------------------- */
+.dark {
+  --background: #0a0a0b;
+  --foreground: #fafafa; /* 18.96:1 */
+
+  --card: #111113; /* one step up from the page = elevation without a border */
+  --card-foreground: #fafafa; /* 18.07:1 */
+  --popover: #161619;
+  --popover-foreground: #fafafa; /* 17.30:1 */
+
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa; /*  7.72:1 on background, 6.63:1 on muted */
+
+  --border: #27272a;
+  --input: #2e2e33;
+  --ring: #818cf8; /*  6.63:1 on background */
+
+  /* Indigo-500 (#6366F1) is the obvious pick and it FAILS: white on it is
+     4.47:1. #5850EC is the same hue one notch deeper and clears 4.5. */
+  --primary: #5850ec;
+  --primary-foreground: #ffffff; /*  5.56:1 on primary; primary 3.56:1 on bg */
+  --primary-hover: #6366f1;
+
+  --secondary: #1c1c1f;
+  --secondary-foreground: #fafafa; /* 16.29:1 */
+
+  --accent: #1e1b4b;
+  --accent-foreground: #c7d2fe; /* 10.72:1 */
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff; /*  4.83:1 */
+  --success: #16a34a;
+  --success-foreground: #04180c; /*  5.58:1 — dark ink on a bright fill */
+  --warning: #f59e0b;
+  --warning-foreground: #2a1a00; /*  7.85:1 */
+  --info: #3b82f6;
+  --info-foreground: #06152e; /*  4.95:1 */
+
+  --destructive-soft: #2b1315;
+  --destructive-soft-foreground: #fca5a5; /* 10.43 page / 9.17 tint */
+  --success-soft: #0c1f15;
+  --success-soft-foreground: #86efac; /* 14.09 page / 12.23 tint */
+  --warning-soft: #251a05;
+  --warning-soft-foreground: #fcd34d; /* 13.72 page / 11.85 tint */
+  --info-soft: #0d1a2e;
+  --info-soft-foreground: #93c5fd; /* 10.97 page /  9.67 tint */
+  --primary-soft: #1a1832;
+  --primary-soft-foreground: #a5b4fc; /*  9.93 page /  8.63 tint */
+  --neutral-soft: #1c1c1f;
+  --neutral-soft-foreground: #d4d4d8; /* 13.39 page / 11.50 tint */
+
+  --chart-1: #818cf8; /*  6.63:1 */
+  --chart-2: #38bdf8; /*  9.24:1 */
+  --chart-3: #34d399; /* 10.29:1 */
+  --chart-4: #fbbf24; /* 11.85:1 */
+  --chart-5: #f472b6; /*  7.47:1 */
+
+  --glass-bg: rgb(17 17 19 / 0.66);
+  --glass-border: rgb(250 250 250 / 0.08);
+  --mesh-1: rgb(88 80 236 / 0.18);
+  --mesh-2: rgb(244 114 182 / 0.1);
+  --mesh-3: rgb(56 189 248 / 0.1);
+
+  /* Shadows do almost nothing on near-black, so elevation is carried by a
+     hairline top-light (the inset-looking 0 0 0 1px) plus a deeper ambient pool. */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 0.5), 0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --shadow-md:
+    0 2px 4px -2px rgb(0 0 0 / 0.5), 0 4px 8px -2px rgb(0 0 0 / 0.5),
+    0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-lg:
+    0 4px 6px -4px rgb(0 0 0 / 0.5), 0 12px 24px -6px rgb(0 0 0 / 0.6),
+    0 0 0 1px rgb(255 255 255 / 0.05);
+  --shadow-xl:
+    0 8px 12px -6px rgb(0 0 0 / 0.5), 0 24px 48px -12px rgb(0 0 0 / 0.7),
+    0 0 0 1px rgb(255 255 255 / 0.06);
+  --shadow-glow: 0 0 0 1px rgb(129 140 248 / 0.28), 0 8px 24px -8px rgb(88 80 236 / 0.5);
+}
+
+/* -----------------------------------------------------------------------------
+   Token -> Tailwind utility bridge. `inline` keeps the var() reference in the
+   generated CSS so `.dark` overrides cascade normally.
+   -------------------------------------------------------------------------- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-soft-foreground: var(--destructive-soft-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-foreground: var(--success-soft-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-foreground: var(--warning-soft-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-info-soft-foreground: var(--info-soft-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-soft-foreground: var(--neutral-soft-foreground);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-glow: var(--shadow-glow);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Ultrawide: content is capped, never sprawled. */
+  --container-content: 90rem; /* 1440px */
+}
+
+/* -----------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* One focus treatment, applied globally. A component may restyle it but must
+     never remove it — this is the keyboard user's only cursor. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+  /* Mouse users get no ring; killing the UA outline on :focus but NOT on
+     :focus-visible keeps both cases correct. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  /* Thin, non-intrusive scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Utilities
+   -------------------------------------------------------------------------- */
+@layer utilities {
+  /* Numeric columns must align; tabular figures are non-negotiable in an app that
+     is mostly money in a table. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Frosted surface. Used sparingly: sticky topbar, command palette, overlays.
+     Degrades to a translucent-but-unblurred surface where backdrop-filter is
+     unsupported, which is still legible. */
+  .glass {
+    background-color: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .glass {
+      -webkit-backdrop-filter: blur(16px) saturate(180%);
+      backdrop-filter: blur(16px) saturate(180%);
+    }
+  }
+
+  /* Hero/brand surfaces only — three offset radials read as a soft mesh without
+     shipping an image. */
+  .mesh-gradient {
+    background-image:
+      radial-gradient(at 18% 12%, var(--mesh-1) 0px, transparent 55%),
+      radial-gradient(at 82% 8%, var(--mesh-2) 0px, transparent 50%),
+      radial-gradient(at 62% 88%, var(--mesh-3) 0px, transparent 55%);
+  }
+
+  .radial-fade {
+    background-image: radial-gradient(
+      ellipse 80% 60% at 50% -10%,
+      var(--mesh-1),
+      transparent 70%
+    );
+  }
+
+  /* Hairline grid for the auth brand panel, masked to fade at the edges. */
+  .grid-pattern {
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black 20%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black 20%, transparent 75%);
+  }
+
+  .text-gradient {
+    background-image: linear-gradient(120deg, var(--foreground) 20%, var(--primary) 95%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Mobile drawers/bars must clear the iOS home indicator. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Ultrawide guard: every page's content sits inside one of these. */
+  .content-container {
+    width: 100%;
+    max-width: var(--container-content);
+    margin-inline: auto;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Reduced motion — an accessibility requirement, not a nicety. Framer Motion is
+   told separately (MotionConfig reducedMotion="user"); this is the CSS backstop
+   for transitions we don't drive through Framer.
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,1079 @@
+type ActivityItem {
+  kind: String!
+  id: ID!
+  label: String!
+  amount: String!
+  customerName: String!
+  at: DateTime!
+}
+
+type ArchiveBatchPage {
+  items: [ArchiveBatchType!]!
+  pageInfo: PageInfo!
+}
+
+type ArchiveBatchType {
+  id: ID!
+  state: ArchiveState!
+  creditCount: Int!
+  paymentCount: Int!
+  recordCount: Int!
+  storageBytes: Int!
+  retentionPolicy: String!
+  deleteScheduledFor: DateTime!
+  daysUntilDeletion: Int!
+  warningsSent: [Int!]!
+  postponedCount: Int!
+  exportId: ID
+  canRestore: Boolean!
+  createdAt: DateTime!
+}
+
+enum ArchiveState {
+  ARCHIVED
+  PENDING_DELETION
+  POSTPONED
+  RESTORED
+  DELETED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  PURGE
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_RESET
+  EXPORT
+  ARCHIVE
+  RESTORE
+  MAINTENANCE
+  REMINDER
+}
+
+type AuditLogPage {
+  items: [AuditLogType!]!
+  pageInfo: PageInfo!
+}
+
+type AuditLogType {
+  id: ID!
+  action: AuditAction!
+  entityType: String!
+  entityId: ID
+  summary: String!
+  changes: JSON!
+  actorLabel: String!
+  createdAt: DateTime!
+}
+
+type AuthPayload {
+  accessToken: String!
+  refreshToken: String!
+  user: UserType!
+}
+
+type BusinessPage {
+  items: [BusinessType!]!
+  pageInfo: PageInfo!
+}
+
+type BusinessType {
+  id: ID!
+  name: String!
+  slug: String!
+  description: String
+  logoUrl: String
+  email: String
+  phone: String
+  whatsappNumber: String
+  website: String
+  facebookUrl: String
+  instagramUrl: String
+  tiktokUrl: String
+  address: String
+  city: String
+  country: String
+  googleMapsUrl: String
+  latitude: Float
+  longitude: Float
+  currency: String!
+  currencySymbol: String!
+  timezone: String!
+  locale: String!
+  taxPercentage: String!
+  workingHours: JSON!
+  remindersEnabled: Boolean!
+  reminderDaysBefore: [Int!]!
+  reminderAudience: ReminderAudience!
+  reminderSendHour: Int!
+  notifyOwnerOnOverdue: Boolean!
+  notifyOwnerOnPayment: Boolean!
+  emailFromName: String
+  emailReplyTo: String
+  emailSignature: String
+  brandColor: String!
+  retentionPolicy: RetentionPolicy!
+  retentionNotificationsEnabled: Boolean!
+  storageQuotaMb: Int!
+  isActive: Boolean!
+  createdAt: DateTime!
+}
+
+input BusinessUpdateInput {
+  name: String = null
+  description: String = null
+  logoFileId: ID = null
+  email: String = null
+  phone: String = null
+  whatsappNumber: String = null
+  website: String = null
+  facebookUrl: String = null
+  instagramUrl: String = null
+  tiktokUrl: String = null
+  address: String = null
+  city: String = null
+  country: String = null
+  googleMapsUrl: String = null
+  latitude: Float = null
+  longitude: Float = null
+  currency: String = null
+  currencySymbol: String = null
+  timezone: String = null
+  locale: String = null
+  taxPercentage: String = null
+  workingHours: JSON = null
+  remindersEnabled: Boolean = null
+  reminderDaysBefore: [Int!] = null
+  reminderAudience: ReminderAudience = null
+  reminderSendHour: Int = null
+  notifyOwnerOnOverdue: Boolean = null
+  notifyOwnerOnPayment: Boolean = null
+  emailFromName: String = null
+  emailReplyTo: String = null
+  emailSignature: String = null
+  brandColor: String = null
+  retentionPolicy: RetentionPolicy = null
+  retentionNotificationsEnabled: Boolean = null
+}
+
+input CategoryInput {
+  name: String!
+  description: String = null
+  color: String = null
+}
+
+type CategoryType {
+  id: ID!
+  name: String!
+  description: String
+  color: String
+  createdAt: DateTime!
+}
+
+input ChangePasswordInput {
+  currentPassword: String!
+  newPassword: String!
+}
+
+input CreditCreateInput {
+  customerId: ID!
+  items: [CreditItemInput!]!
+  dueDate: Date!
+  issuedDate: Date = null
+  reminderDate: Date = null
+  discountPercentage: String = null
+  taxPercentage: String = null
+  notes: String = null
+  photoFileIds: [ID!] = null
+  invoiceFileId: ID = null
+  initialPayment: String = null
+}
+
+input CreditFilterInput {
+  search: String = null
+  status: [CreditStatus!] = null
+  customerId: ID = null
+  dueFrom: Date = null
+  dueTo: Date = null
+  issuedFrom: Date = null
+  issuedTo: Date = null
+  minAmount: String = null
+  maxAmount: String = null
+  overdueOnly: Boolean! = false
+}
+
+input CreditItemInput {
+  name: String!
+  quantity: String! = "1"
+  unitPrice: String! = "0"
+  kind: ItemKind! = PRODUCT
+  productId: ID = null
+  serviceId: ID = null
+  description: String = null
+  unit: String! = "pcs"
+  discountAmount: String! = "0"
+  taxPercentage: String! = "0"
+}
+
+type CreditItemType {
+  id: ID!
+  kind: ItemKind!
+  productId: ID
+  serviceId: ID
+  name: String!
+  description: String
+  unit: String!
+  quantity: String!
+  unitPrice: String!
+  discountAmount: String!
+  taxPercentage: String!
+  taxAmount: String!
+  lineSubtotal: String!
+  lineTotal: String!
+  position: Int!
+}
+
+type CreditPage {
+  items: [CreditType!]!
+  pageInfo: PageInfo!
+}
+
+enum CreditStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+type CreditType {
+  id: ID!
+  number: String!
+  customerId: ID!
+  customer: CustomerType
+  subtotal: String!
+  discountAmount: String!
+  taxAmount: String!
+  grandTotal: String!
+  amountPaid: String!
+  remainingAmount: String!
+  discountPercentage: String
+  taxPercentage: String
+  currency: String!
+  issuedDate: Date!
+  dueDate: Date!
+  reminderDate: Date
+  paidAt: DateTime
+  status: CreditStatus!
+  notes: String
+  photoUrls: [String!]!
+  invoiceUrl: String
+  items: [CreditItemType!]!
+  payments: [PaymentType!]!
+  daysUntilDue: Int!
+  isOverdue: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input CreditUpdateInput {
+  items: [CreditItemInput!] = null
+  dueDate: Date = null
+  reminderDate: Date = null
+  discountPercentage: String = null
+  taxPercentage: String = null
+  notes: String = null
+  photoFileIds: [ID!] = null
+  invoiceFileId: ID = null
+}
+
+input CustomerFilterInput {
+  search: String = null
+  status: [CustomerStatus!] = null
+  minOutstanding: String = null
+  maxOutstanding: String = null
+  hasOverdue: Boolean = null
+}
+
+input CustomerInput {
+  name: String!
+  phone: String = null
+  email: String = null
+  address: String = null
+  city: String = null
+  latitude: Float = null
+  longitude: Float = null
+  photoFileId: ID = null
+  notes: String = null
+  status: CustomerStatus = null
+  creditLimit: String = null
+  emergencyContactName: String = null
+  emergencyContactPhone: String = null
+  emergencyContactRelation: String = null
+}
+
+type CustomerPage {
+  items: [CustomerType!]!
+  pageInfo: PageInfo!
+}
+
+type CustomerScore {
+  customerId: ID!
+  score: Int!
+  reasons: [String!]!
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  DEFAULTED
+}
+
+type CustomerType {
+  id: ID!
+  code: String!
+  name: String!
+  phone: String
+  email: String
+  address: String
+  city: String
+  latitude: Float
+  longitude: Float
+  photoUrl: String
+  photoThumbnailUrl: String
+  notes: String
+  status: CustomerStatus!
+  emergencyContactName: String
+  emergencyContactPhone: String
+  emergencyContactRelation: String
+  creditScore: Int!
+  creditLimit: String
+  totalCredit: String!
+  totalPaid: String!
+  outstandingBalance: String!
+  creditCount: Int!
+  overdueCount: Int!
+  lastCreditAt: DateTime
+  lastPaymentAt: DateTime
+  createdAt: DateTime!
+}
+
+type Dashboard {
+  summary: DashboardSummary!
+  monthly: [MonthlyPoint!]!
+  overdueTrend: [MonthlyPoint!]!
+  topCustomers: [TopCustomer!]!
+  latestActivity: [ActivityItem!]!
+  upcomingDue: [CreditType!]!
+  collectionsByMethod: [MethodBreakdown!]!
+}
+
+type DashboardSummary {
+  totalCustomers: Int!
+  activeCustomers: Int!
+  totalCredits: Int!
+  totalCreditValue: String!
+  overdueCount: Int!
+  overdueAmount: String!
+  dueTodayCount: Int!
+  dueTodayAmount: String!
+  totalRevenue: String!
+  pendingRevenue: String!
+  collectionsThisMonth: String!
+  collectionsLastMonth: String!
+  collectionsDeltaPercent: Float
+  currency: String!
+  currencySymbol: String!
+}
+
+"""Date (isoformat)"""
+scalar Date
+
+"""Date with time (isoformat)"""
+scalar DateTime
+
+input EmailTemplateInput {
+  subject: String = null
+  bodyHtml: String = null
+  footerHtml: String = null
+  signature: String = null
+  primaryColor: String = null
+  accentColor: String = null
+  showLogo: Boolean = null
+  isActive: Boolean = null
+}
+
+enum EmailTemplateKind {
+  REMINDER
+  RECEIPT
+  PAYMENT_CONFIRMATION
+  WELCOME
+  ADMIN_NOTIFICATION
+  OVERDUE_NOTICE
+  DATA_DELETION_WARNING
+}
+
+type EmailTemplateType {
+  id: ID!
+  kind: EmailTemplateKind!
+  name: String!
+  subject: String!
+  bodyHtml: String!
+  footerHtml: String
+  signature: String
+  primaryColor: String
+  accentColor: String
+  showLogo: Boolean!
+  isActive: Boolean!
+  isDefault: Boolean!
+  updatedAt: DateTime!
+}
+
+enum ExportFormat {
+  CSV
+  XLSX
+  JSON
+  PDF
+}
+
+input ExportInput {
+  format: ExportFormat!
+  datasets: [String!]!
+  dateFrom: Date = null
+  dateTo: Date = null
+}
+
+type ExportJobPage {
+  items: [ExportJobType!]!
+  pageInfo: PageInfo!
+}
+
+type ExportJobType {
+  id: ID!
+  format: ExportFormat!
+  state: ExportState!
+  datasets: [String!]!
+  rowCount: Int!
+  sizeBytes: Int!
+  downloadUrl: String
+  expiresAt: DateTime
+  error: String
+  createdAt: DateTime!
+}
+
+enum ExportState {
+  PENDING
+  RUNNING
+  READY
+  FAILED
+  EXPIRED
+}
+
+enum ItemKind {
+  PRODUCT
+  SERVICE
+  CUSTOM
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf).
+"""
+scalar JSON @specifiedBy(url: "https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf")
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type MaintenanceResult {
+  operation: String!
+  success: Boolean!
+  message: String!
+  bytesFreed: Int!
+  rowsAffected: Int!
+}
+
+type MessagePayload {
+  success: Boolean!
+  message: String!
+}
+
+type MethodBreakdown {
+  method: PaymentMethod!
+  total: String!
+  count: Int!
+}
+
+type MonthlyPoint {
+  month: String!
+  label: String!
+  creditIssued: String!
+  collected: String!
+  overdueAmount: String!
+}
+
+type Mutation {
+  login(input: LoginInput!): AuthPayload!
+
+  """Create a business and its first ADMIN, and sign them in."""
+  register(input: RegisterInput!): AuthPayload!
+
+  """Rotate a refresh token. The presented token is revoked."""
+  refreshToken(refreshToken: String!): AuthPayload!
+  logout(refreshToken: String!): MessagePayload!
+
+  """
+  Always reports the same thing, registered address or not -- otherwise this endpoint is a free account-enumeration oracle.
+  """
+  requestPasswordReset(email: String!): MessagePayload!
+  resetPassword(input: ResetPasswordInput!): MessagePayload!
+  changePassword(input: ChangePasswordInput!): UserType!
+
+  """Self-service. Cannot touch role or is_active."""
+  updateProfile(input: ProfileUpdateInput!): UserType!
+  updateBusiness(input: BusinessUpdateInput!): BusinessType!
+  createUser(input: UserCreateInput!): UserType!
+  updateUser(id: ID!, input: UserUpdateInput!): UserType!
+  deactivateUser(id: ID!): UserType!
+  deleteUser(id: ID!): UserType!
+  createCustomer(input: CustomerInput!): CustomerType!
+  updateCustomer(id: ID!, input: CustomerInput!): CustomerType!
+
+  """Refused while the customer still owes money."""
+  deleteCustomer(id: ID!): CustomerType!
+  restoreCustomer(id: ID!): CustomerType!
+  createCategory(input: CategoryInput!): CategoryType!
+  updateCategory(id: ID!, input: CategoryInput!): CategoryType!
+
+  """Members of the category are uncategorised, not deleted."""
+  deleteCategory(id: ID!): CategoryType!
+  createProduct(input: ProductInput!): ProductType!
+  updateProduct(id: ID!, input: ProductInput!): ProductType!
+  deleteProduct(id: ID!): ProductType!
+
+  """
+  Add to (or subtract from) stock. Stock may go negative on purpose: a stale count must never block a sale -- see models/catalog.py.
+  """
+  adjustStock(id: ID!, delta: String!, reason: String = null): ProductType!
+  createService(input: ServiceInput!): ServiceType!
+  updateService(id: ID!, input: ServiceInput!): ServiceType!
+  deleteService(id: ID!): ServiceType!
+  createCredit(input: CreditCreateInput!): CreditType!
+  updateCredit(id: ID!, input: CreditUpdateInput!): CreditType!
+
+  """Refused once money has changed hands -- void the payments first."""
+  cancelCredit(id: ID!, reason: String = null): CreditType!
+
+  """
+  Refused if payments exist -- cancel it instead, so the ledger survives.
+  """
+  deleteCredit(id: ID!): CreditType!
+
+  """Overpayment is refused here, at the counter."""
+  recordPayment(input: PaymentInput!): PaymentType!
+
+  """
+  Reverse a payment WITHOUT erasing it. The reason becomes part of the permanent record.
+  """
+  voidPayment(id: ID!, reason: String!): PaymentType!
+
+  """Queue an immediate reminder. The sweep delivers it."""
+  sendReminder(creditId: ID!): ScheduledReminderType!
+  cancelReminder(id: ID!): ScheduledReminderType!
+  updateEmailTemplate(kind: EmailTemplateKind!, input: EmailTemplateInput!): EmailTemplateType!
+
+  """Restore the shipped copy, discarding the owner's edits."""
+  resetEmailTemplate(kind: EmailTemplateKind!): EmailTemplateType!
+
+  """Render the template with realistic sample data. Returns HTML."""
+  previewEmailTemplate(kind: EmailTemplateKind!): String!
+  markNotificationRead(id: ID!): NotificationType!
+
+  """Returns how many were marked read."""
+  markAllNotificationsRead: Int!
+  archiveNotification(id: ID!): NotificationType!
+  deleteNotification(id: ID!): MessagePayload!
+
+  """Runs the export and returns the READY (or FAILED) job."""
+  createExport(input: ExportInput!): ExportJobType!
+
+  """Push a scheduled deletion back. The owner's veto."""
+  postponeDeletion(batchId: ID!, days: Int! = 30): ArchiveBatchType!
+
+  """Bring an archived batch back into the active lists."""
+  restoreArchive(batchId: ID!): ArchiveBatchType!
+
+  """
+  Run one maintenance operation. Allowed: clean_temp_files, delete_expired_exports, sweep_orphan_files, vacuum_database, analyze_database, optimize_database, check_integrity, clean_old_logs.
+  """
+  runMaintenance(operation: String!): MaintenanceResult!
+}
+
+enum NotificationKind {
+  EMAIL_SENT
+  REMINDER_SENT
+  PAYMENT_RECEIVED
+  CREDIT_OVERDUE
+  DATA_DELETION_WARNING
+  EXPORT_READY
+  STORAGE_WARNING
+  SYSTEM
+}
+
+type NotificationPage {
+  items: [NotificationType!]!
+  pageInfo: PageInfo!
+  unreadCount: Int!
+}
+
+enum NotificationState {
+  UNREAD
+  READ
+  ARCHIVED
+}
+
+type NotificationType {
+  id: ID!
+  kind: NotificationKind!
+  state: NotificationState!
+  title: String!
+  message: String!
+  link: JSON!
+  readAt: DateTime
+  createdAt: DateTime!
+}
+
+type PageInfo {
+  total: Int!
+  page: Int!
+  limit: Int!
+  pages: Int!
+  hasNext: Boolean!
+  hasPrevious: Boolean!
+}
+
+input PageInput {
+  page: Int! = 1
+  limit: Int! = 25
+}
+
+input PaymentFilterInput {
+  search: String = null
+  creditId: ID = null
+  customerId: ID = null
+  method: [PaymentMethod!] = null
+  dateFrom: Date = null
+  dateTo: Date = null
+  minAmount: String = null
+  maxAmount: String = null
+  includeVoided: Boolean! = false
+}
+
+input PaymentInput {
+  creditId: ID!
+  amount: String!
+  method: PaymentMethod! = CASH
+  paidAt: Date = null
+  reference: String = null
+  notes: String = null
+  receiptFileId: ID = null
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CARD
+  MOBILE_MONEY
+  CHEQUE
+  OTHER
+}
+
+type PaymentPage {
+  items: [PaymentType!]!
+  pageInfo: PageInfo!
+}
+
+type PaymentType {
+  id: ID!
+  number: String!
+  creditId: ID!
+  customerId: ID!
+  customerName: String
+  creditNumber: String
+  amount: String!
+  balanceAfter: String!
+  method: PaymentMethod!
+  reference: String
+  notes: String
+  paidAt: DateTime!
+  receiptUrl: String
+  isVoid: Boolean!
+  voidedAt: DateTime
+  voidReason: String
+  createdAt: DateTime!
+}
+
+input ProductFilterInput {
+  search: String = null
+  categoryId: ID = null
+  isActive: Boolean = null
+  lowStockOnly: Boolean! = false
+}
+
+input ProductInput {
+  name: String!
+  sku: String = null
+  barcode: String = null
+  description: String = null
+  categoryId: ID = null
+  price: String! = "0"
+  costPrice: String = null
+  taxPercentage: String = null
+  stockQuantity: String! = "0"
+  lowStockThreshold: String = null
+  unit: String! = "pcs"
+  imageFileIds: [ID!] = null
+  isActive: Boolean! = true
+}
+
+type ProductPage {
+  items: [ProductType!]!
+  pageInfo: PageInfo!
+}
+
+type ProductType {
+  id: ID!
+  name: String!
+  sku: String
+  barcode: String
+  description: String
+  categoryId: ID
+  category: CategoryType
+  price: String!
+  costPrice: String
+  taxPercentage: String
+  stockQuantity: String!
+  lowStockThreshold: String
+  unit: String!
+  imageUrls: [String!]!
+  isActive: Boolean!
+  isLowStock: Boolean!
+  createdAt: DateTime!
+}
+
+input ProfileUpdateInput {
+  fullName: String = null
+  phone: String = null
+  avatarFileId: ID = null
+  theme: String = null
+  language: String = null
+}
+
+type Query {
+  """The signed-in user, with the permissions their role grants."""
+  me: UserType!
+
+  """The caller's own business."""
+  business: BusinessType!
+
+  """Every business on the platform. SUPER_ADMIN only."""
+  businesses(page: PageInput = null, search: String = null, isActive: Boolean = null): BusinessPage!
+
+  """Staff accounts in the caller's business."""
+  users(page: PageInput = null, search: String = null, role: String = null, isActive: Boolean = null): UserPage!
+  customer(id: ID!): CustomerType!
+  customers(filter: CustomerFilterInput = null, page: PageInput = null, sort: SortInput = null): CustomerPage!
+
+  """The 0-100 credit score and the plain-language reasons for it."""
+  customerScore(id: ID!): CustomerScore!
+  categories(search: String = null): [CategoryType!]!
+  product(id: ID!): ProductType!
+  products(filter: ProductFilterInput = null, page: PageInput = null, sort: SortInput = null): ProductPage!
+  service(id: ID!): ServiceType!
+  services(filter: ServiceFilterInput = null, page: PageInput = null, sort: SortInput = null): ServicePage!
+  credit(id: ID!): CreditType!
+
+  """Look a credit up by its human reference, e.g. CR-2026-0042."""
+  creditByNumber(number: String!): CreditType!
+  credits(filter: CreditFilterInput = null, page: PageInput = null, sort: SortInput = null): CreditPage!
+  payment(id: ID!): PaymentType!
+  payments(filter: PaymentFilterInput = null, page: PageInput = null, sort: SortInput = null): PaymentPage!
+
+  """
+  Every payment on a credit, VOIDED ONES INCLUDED -- the ledger is append-only and the UI strikes voids through rather than hiding them.
+  """
+  paymentHistory(creditId: ID!): [PaymentType!]!
+
+  """Everything the dashboard draws, in one round trip."""
+  dashboard: Dashboard!
+
+  """
+  Global search across customers (name/phone/code), credits (number), payments (reference/number) and products (name/SKU).
+  """
+  search(query: String!, limit: Int! = 20): SearchResults!
+  notifications(state: NotificationState = null, page: PageInput = null): NotificationPage!
+
+  """Badge count. A COUNT(*), not a fetch."""
+  unreadNotificationCount: Int!
+  emailTemplates: [EmailTemplateType!]!
+  emailTemplate(kind: EmailTemplateKind!): EmailTemplateType!
+
+  """The {{variables}} this template kind may use."""
+  templateVariables(kind: EmailTemplateKind!): [TemplateVariableType!]!
+  reminders(status: [ReminderStatus!] = null, creditId: ID = null, page: PageInput = null): ReminderPage!
+  report(input: ReportInput = null): ReportSummary!
+  storageUsage: StorageUsage!
+  archiveBatches(page: PageInput = null): ArchiveBatchPage!
+
+  """What the NEXT retention sweep would archive. Nothing is moved."""
+  retentionPreview: RetentionPreview!
+  exports(page: PageInput = null): ExportJobPage!
+  export(id: ID!): ExportJobType!
+
+  """The audit trail. ADMIN and above."""
+  auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null): AuditLogPage!
+}
+
+input RegisterInput {
+  businessName: String!
+  fullName: String!
+  email: String!
+  password: String!
+}
+
+enum ReminderAudience {
+  CUSTOMER
+  OWNER
+  BOTH
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+type ReminderPage {
+  items: [ScheduledReminderType!]!
+  pageInfo: PageInfo!
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  SENT
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+input ReportInput {
+  period: ReportPeriod! = MONTHLY
+  startDate: Date = null
+  endDate: Date = null
+}
+
+enum ReportPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+type ReportRow {
+  label: String!
+  creditsIssued: String!
+  creditsCount: Int!
+  collected: String!
+  paymentsCount: Int!
+}
+
+type ReportSummary {
+  period: ReportPeriod!
+  startDate: Date!
+  endDate: Date!
+  totalIssued: String!
+  totalIssuedCount: Int!
+  totalCollected: String!
+  totalCollectedCount: Int!
+  outstanding: String!
+  overdueAmount: String!
+  overdueCount: Int!
+  rows: [ReportRow!]!
+  topCustomers: [TopCustomer!]!
+  byMethod: [MethodBreakdown!]!
+}
+
+input ResetPasswordInput {
+  token: String!
+  newPassword: String!
+}
+
+enum RetentionPolicy {
+  DAYS_30
+  DAYS_60
+  DAYS_90
+  NEVER
+}
+
+type RetentionPreview {
+  credits: Int!
+  payments: Int!
+  records: Int!
+  policy: RetentionPolicy!
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+}
+
+type ScheduledReminderType {
+  id: ID!
+  creditId: ID!
+  customerId: ID!
+  audience: ReminderAudience!
+  channel: ReminderChannel!
+  scheduledFor: Date!
+  daysBeforeDue: Int!
+  status: ReminderStatus!
+  sentAt: DateTime
+  attempts: Int!
+  lastError: String
+}
+
+type SearchHit {
+  kind: String!
+  id: ID!
+  title: String!
+  subtitle: String!
+  amount: String
+  status: String
+}
+
+type SearchResults {
+  hits: [SearchHit!]!
+  total: Int!
+}
+
+input ServiceFilterInput {
+  search: String = null
+  categoryId: ID = null
+  isActive: Boolean = null
+}
+
+input ServiceInput {
+  name: String!
+  code: String = null
+  description: String = null
+  categoryId: ID = null
+  price: String! = "0"
+  taxPercentage: String = null
+  durationMinutes: Int = null
+  isActive: Boolean! = true
+}
+
+type ServicePage {
+  items: [ServiceType!]!
+  pageInfo: PageInfo!
+}
+
+type ServiceType {
+  id: ID!
+  name: String!
+  code: String
+  description: String
+  categoryId: ID
+  category: CategoryType
+  price: String!
+  taxPercentage: String
+  durationMinutes: Int
+  isActive: Boolean!
+  createdAt: DateTime!
+}
+
+input SortInput {
+  field: String! = "created_at"
+  desc: Boolean! = true
+}
+
+type StorageBreakdown {
+  label: String!
+  bytes: Int!
+  count: Int!
+}
+
+type StorageUsage {
+  databaseBytes: Int!
+  uploadsBytes: Int!
+  totalBytes: Int!
+  quotaBytes: Int!
+  percentUsed: Float!
+  overQuota: Boolean!
+  bytesSavedByCompression: Int!
+  breakdown: [StorageBreakdown!]!
+  customerCount: Int!
+  creditCount: Int!
+  paymentCount: Int!
+  productCount: Int!
+  serviceCount: Int!
+  imageCount: Int!
+  exportCount: Int!
+}
+
+type TemplateVariableType {
+  name: String!
+  description: String!
+  example: String!
+}
+
+type TopCustomer {
+  customerId: ID!
+  name: String!
+  outstanding: String!
+  totalCredit: String!
+  creditCount: Int!
+  creditScore: Int!
+}
+
+input UserCreateInput {
+  email: String!
+  fullName: String!
+  password: String!
+  role: Role! = STAFF
+  phone: String = null
+}
+
+type UserPage {
+  items: [UserType!]!
+  pageInfo: PageInfo!
+}
+
+type UserType {
+  id: ID!
+  email: String!
+  fullName: String!
+  phone: String
+  role: String!
+  businessId: ID
+  isActive: Boolean!
+  avatarUrl: String
+  theme: String!
+  language: String!
+  lastLoginAt: DateTime
+  createdAt: DateTime!
+  permissions: [String!]!
+}
+
+input UserUpdateInput {
+  fullName: String = null
+  phone: String = null
+  role: Role = null
+  isActive: Boolean = null
+}

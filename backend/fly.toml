@@ -1,0 +1,53 @@
+# Fly.io — a persistent host with a real volume. Free-tier friendly.
+#
+#   fly launch --no-deploy
+#   fly volumes create credit_data --size 1     # 1 GB, ~free
+#   fly secrets set SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+#   fly secrets set CORS_ORIGINS="https://your-app.vercel.app"
+#   fly deploy
+
+app = "credit-system-api"
+primary_region = "sin"          # pick the region closest to the shop
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  DEBUG = "false"
+  SCHEDULER_ENABLED = "true"
+  STORAGE_BACKEND = "local"     # the mounted volume below makes this durable
+
+# THE IMPORTANT BIT. Without this volume, the SQLite database and every uploaded
+# photo live in the container's ephemeral layer and are destroyed on each deploy.
+[[mounts]]
+  source = "credit_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # The scheduler lives in this process. Suspending the machine when idle would
+  # mean no reminders are ever sent — which is the entire product.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # ONE machine. Two would both run the reminder sweep.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8000
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"

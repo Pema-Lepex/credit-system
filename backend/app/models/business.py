@@ -1,0 +1,127 @@
+"""Business (tenant) and its settings.
+
+NOTE — no ``from __future__ import annotations`` in this module, deliberately.
+That import stringifies EVERY annotation, including ``list["User"]`` on the
+Relationship below. SQLModel then cannot see the ``list[...]`` wrapper (it gets one
+opaque string), so it hands SQLAlchemy the literal text ``list['User']`` as the
+relationship target and mapper configuration dies with:
+
+    InvalidRequestError: expression "relationship("list['User']")" seems to be
+    using a generic class as the argument to relationship()
+
+Without the future import, ``list["User"]`` evaluates to ``list[ForwardRef('User')]``
+-- SQLModel unwraps the list, and SQLAlchemy resolves the "User" forward reference
+against its class registry. Every model module that declares a Relationship must
+therefore avoid the future import. Modules with no Relationship (customer, catalog,
+file, ...) keep it.
+"""
+
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy import JSON, Column
+from sqlmodel import Field, Relationship
+
+from app.models.base import BaseEntity
+from app.models.enums import ReminderAudience, RetentionPolicy
+
+if TYPE_CHECKING:
+    from app.models.user import User
+
+
+class Business(BaseEntity, table=True):
+    """A tenant. Every domain row hangs off exactly one of these.
+
+    ARCHITECTURE NOTE: settings are split across three groups (profile, reminders,
+    storage/retention) but kept on ONE row rather than in a settings table. A
+    business always loads all of its settings together, so a join would buy
+    nothing, and a single row keeps the update path atomic.
+    """
+
+    __tablename__ = "business"
+
+    # --- Identity -----------------------------------------------------------
+    name: str = Field(index=True, max_length=160)
+    slug: str = Field(unique=True, index=True, max_length=180)
+    description: str | None = Field(default=None, max_length=2000)
+
+    # NOTE: deliberately NOT a foreign key.
+    #
+    # FileAsset.business_id already points at Business, so a FK here would close a
+    # cycle: business -> file_asset -> business. SQLite tolerates that; PostgreSQL
+    # cannot create the two tables in any valid order and CREATE TABLE fails
+    # outright -- which would break the very Postgres migration path this project
+    # promises. (Alembic warns: "unresolvable cycles between tables".)
+    #
+    # The alternative -- deferrable constraints via use_alter=True -- adds real
+    # complexity for a reference that the application already manages: StorageService
+    # reference-counts every attach/detach, and the orphan sweep reclaims anything
+    # unreferenced. The integrity this FK would enforce is enforced in code, on a
+    # path that has to exist anyway.
+    logo_file_id: str | None = Field(default=None, index=True, max_length=32)
+
+    # --- Contact ------------------------------------------------------------
+    email: str | None = Field(default=None, index=True, max_length=255)
+    phone: str | None = Field(default=None, max_length=40)
+    whatsapp_number: str | None = Field(default=None, max_length=40)
+    website: str | None = Field(default=None, max_length=255)
+
+    # --- Social -------------------------------------------------------------
+    facebook_url: str | None = Field(default=None, max_length=255)
+    instagram_url: str | None = Field(default=None, max_length=255)
+    tiktok_url: str | None = Field(default=None, max_length=255)
+
+    # --- Location -----------------------------------------------------------
+    address: str | None = Field(default=None, max_length=500)
+    city: str | None = Field(default=None, max_length=120)
+    country: str | None = Field(default=None, max_length=120)
+    google_maps_url: str | None = Field(default=None, max_length=500)
+    latitude: float | None = Field(default=None)
+    longitude: float | None = Field(default=None)
+
+    # --- Localisation -------------------------------------------------------
+    currency: str = Field(default="USD", max_length=3)          # ISO-4217
+    currency_symbol: str = Field(default="$", max_length=8)
+    timezone: str = Field(default="UTC", max_length=64)         # IANA, e.g. Asia/Thimphu
+    locale: str = Field(default="en", max_length=10)
+    tax_percentage: Decimal = Field(default=Decimal("0"), max_digits=5, decimal_places=2)
+
+    # Opening hours: {"mon": {"open": "09:00", "close": "18:00", "closed": false}, ...}
+    # JSON rather than a WorkingHours table -- it is read as an opaque blob by the
+    # UI, never queried by field, so a table would be seven joins for nothing.
+    working_hours: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    # --- Reminder preferences ----------------------------------------------
+    reminders_enabled: bool = Field(default=True)
+    # Days *before* the due date to fire a reminder. Spec asks for 1/3/7 + custom;
+    # a list makes "custom" free rather than three booleans plus an escape hatch.
+    reminder_days_before: list[int] = Field(
+        default_factory=lambda: [7, 3, 1], sa_column=Column(JSON)
+    )
+    reminder_audience: ReminderAudience = Field(default=ReminderAudience.BOTH, max_length=16)
+    reminder_send_hour: int = Field(default=9)   # business-local hour, 0-23
+    notify_owner_on_overdue: bool = Field(default=True)
+    notify_owner_on_payment: bool = Field(default=True)
+
+    # --- Email identity (per-business, overrides the platform default) ------
+    email_from_name: str | None = Field(default=None, max_length=120)
+    email_reply_to: str | None = Field(default=None, max_length=255)
+    email_signature: str | None = Field(default=None, max_length=1000)
+    brand_color: str = Field(default="#4F46E5", max_length=9)   # #RRGGBB[AA]
+
+    # --- Retention / storage ------------------------------------------------
+    retention_policy: RetentionPolicy = Field(default=RetentionPolicy.DAYS_30, max_length=16)
+    retention_notifications_enabled: bool = Field(default=True)
+    storage_quota_mb: int = Field(default=500)   # soft cap; warns, does not block
+
+    # --- Platform -----------------------------------------------------------
+    is_active: bool = Field(default=True, index=True)
+
+    users: list["User"] = Relationship(
+        back_populates="business",
+        sa_relationship_kwargs={"foreign_keys": "User.business_id"},
+    )
+
+    @property
+    def retention_days(self) -> "int | None":
+        return RetentionPolicy(self.retention_policy).days

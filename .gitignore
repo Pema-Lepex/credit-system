@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Environment -- NEVER commit secrets
+.env
+.env.local
+.env*.local
+!.env.example
+
+# User data, not source
+database/*.db
+database/*.db-wal
+database/*.db-shm
+uploads/**/*
+!uploads/**/.gitkeep
+
+# OS / editor
+.DS_Store
+.idea/
