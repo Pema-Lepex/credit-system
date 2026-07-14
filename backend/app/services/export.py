@@ -138,7 +138,12 @@ class ExportService(BaseService):
             format=format,
             state=ExportState.PENDING,
             datasets=wanted,
-            filters=filters or {},
+            # ExportJob.filters is a JSON column, and json.dumps cannot serialise a
+            # date/Decimal -- the INSERT dies with "Object of type date is not JSON
+            # serializable". Every dated export (the whole Reports page) hit this.
+            # Normalised HERE, at the one place filters are written, so no caller has
+            # to remember. Readers already cope: _as_date() parses ISO strings.
+            filters=_json_safe(filters or {}),
             requested_by_user_id=ctx.user.id if ctx.user else None,
         )
         self.session.add(job)
@@ -830,6 +835,26 @@ def _money(value: Decimal | None) -> float:
 
 def _dt(value: datetime | None) -> str:
     return value.isoformat() if value else ""
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a filter payload into something a JSON column can actually hold.
+
+    Dates and Decimals are the two types this app passes around constantly and JSON
+    knows nothing about. Rendering them as ISO strings / plain strings is lossless
+    here, and the readers (_as_date) already accept both.
+    """
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
 
 
 def _as_date(value: Any) -> date | None:

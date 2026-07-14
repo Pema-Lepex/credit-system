@@ -40,9 +40,15 @@ def _preflight() -> None:
 
     if settings.EMAIL_PROVIDER is EmailProvider.smtp and not settings.SMTP_PASSWORD:
         sys.exit(
-            "EMAIL_PROVIDER=smtp but SMTP_PASSWORD is empty. Fill in backend/.env.\n"
-            "Brevo: the SMTP key, not your account password. Gmail: an App Password."
+            "EMAIL_PROVIDER=smtp but SMTP_PASSWORD is empty. Fill it in in backend/.env.\n\n"
+            "For Gmail this must be a 16-character APP PASSWORD, not your Gmail password:\n"
+            "  1. myaccount.google.com -> Security -> turn on 2-Step Verification\n"
+            "  2. myaccount.google.com/apppasswords -> generate one for 'Mail'\n\n"
+            "Google rejects plain-password SMTP outright, so the real password cannot work."
         )
+
+    if settings.EMAIL_PROVIDER is EmailProvider.smtp and not settings.SMTP_USER:
+        sys.exit("EMAIL_PROVIDER=smtp but SMTP_USER is empty. Set it to your Gmail address.")
 
 
 async def main() -> int:
