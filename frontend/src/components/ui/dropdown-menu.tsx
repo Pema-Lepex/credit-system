@@ -326,6 +326,11 @@ export function DropdownMenuContent({
           }}
           className={cn(
             "z-50 min-w-52 overflow-hidden rounded-lg p-1",
+            // Cap to the viewport (8px gutter each side, matching EDGE). A menu with a
+            // fixed width like `w-80`/`w-96` is otherwise anchored on ONE edge only, so
+            // on a narrow phone it runs off the far edge and gets clipped — the panel
+            // looks "hidden". max-width wins over the width class whenever it's smaller.
+            "max-w-[calc(100vw-1rem)]",
             "border-border bg-popover text-popover-foreground border shadow-lg",
             "focus-visible:outline-none",
             align === "end" ? "origin-top-right" : "origin-top-left",
