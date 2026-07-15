@@ -86,7 +86,7 @@ export function Dialog({
   return createPortal(
     <AnimatePresence>
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
           <motion.div
             variants={overlayVariants}
             initial="hidden"
@@ -111,7 +111,11 @@ export function Dialog({
             animate="visible"
             exit="exit"
             className={cn(
-              "relative z-10 flex w-full flex-col",
+              // min-w-0 + overflow-hidden are load-bearing: as a flex child the panel
+              // would otherwise stretch to its widest content (a table, the template
+              // editor) and blow PAST the viewport, spilling horizontal scroll onto
+              // <body> and breaking the whole page's responsiveness on a phone.
+              "relative z-10 flex w-full min-w-0 flex-col overflow-hidden",
               // Mobile: a bottom sheet with a rounded top. Desktop: a centred card.
               "max-h-[92dvh] rounded-t-2xl sm:max-h-[85dvh] sm:rounded-xl",
               "border-border bg-card text-card-foreground border shadow-xl",
@@ -143,7 +147,7 @@ export function Dialog({
             </header>
 
             {children ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
                 {children}
               </div>
             ) : null}
