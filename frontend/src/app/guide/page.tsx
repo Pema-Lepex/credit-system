@@ -26,7 +26,7 @@ const HANDBOOK = `
 <header class="topbar">
   <div class="wrap row">
     <a class="brand" href="/login" aria-label="Lepex Credit Manager">
-      <span class="mark" aria-hidden="true">L</span>
+      <img class="mark" src="/brand-icon.png" alt="" width="30" height="30" />
       <span>Lepex Credit Manager<small>The Handbook</small></span>
     </a>
     <nav class="topnav" aria-label="Sections">
