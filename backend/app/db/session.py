@@ -50,7 +50,10 @@ def _engine_kwargs() -> dict[str, Any]:
         "echo": settings.DB_ECHO,
         "pool_size": settings.DB_POOL_SIZE,
         "max_overflow": settings.DB_MAX_OVERFLOW,
-        "pool_pre_ping": True,   # transparently recycle connections dropped by the server
+        "pool_pre_ping": True,
+        "connect_args": {
+            "prepare_threshold": None,  # transparently recycle connections dropped by the server
+        }
     }
 
 
