@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Credit Manager",
+    default: "Lepex Credit Manager",
     template: "%s · Credit Manager",
   },
   description:
