@@ -40,6 +40,7 @@ from app.models.enums import (
 from app.models.file import FileAsset
 from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
+from app.models.stored_blob import StoredBlob
 from app.models.types import MoneyType, quantize_money
 from app.models.user import PasswordResetToken, RefreshToken, User
 
@@ -71,6 +72,7 @@ __all__ = [
     "RefreshToken",
     "ScheduledReminder",
     "Service",
+    "StoredBlob",
     "User",
     # enums
     "ArchiveState",

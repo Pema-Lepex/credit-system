@@ -48,14 +48,21 @@ class StorageBackend(str, Enum):
                    over a CDN with on-the-fly transforms. Survives redeploys.
     ``s3``         AWS S3, Cloudflare R2, Supabase Storage, MinIO -- anything with an
                    S3-compatible endpoint.
+    ``db``         stores file bytes in the SQL database itself (a ``stored_blob``
+                   table). No external service, no extra credentials: if your
+                   DATABASE_URL is persistent (Supabase/Neon/Render Postgres), your
+                   files persist too, and survive redeploys on an ephemeral host.
+                   Best for small artefacts (CSV/XLSX/PDF exports, logos); heavy
+                   image galleries are better on cloudinary/s3 to keep the DB lean.
 
-    All three implement the same Protocol (app/storage/base.py), so no service,
-    resolver or model changes when you switch.
+    All implement the same Protocol (app/storage/base.py), so no service, resolver
+    or model changes when you switch.
     """
 
     local = "local"
     cloudinary = "cloudinary"
     s3 = "s3"
+    db = "db"
 
 
 class EmailProvider(str, Enum):

@@ -158,12 +158,15 @@ async def serve_file(
     When STORAGE_BACKEND=s3 this route is not used at all -- url_for() points the
     browser straight at the bucket/CDN.
     """
-    if settings.STORAGE_BACKEND is not BackendKind.local:
+    # Both the local-disk and database backends serve their bytes through this route
+    # (url_for() points here). cloudinary/s3 hand the browser a bucket/CDN URL instead,
+    # so this host never serves their files.
+    if settings.STORAGE_BACKEND not in (BackendKind.local, BackendKind.db):
         raise HTTPException(status_code=404, detail="Not served from this host")
 
-    from app.storage.local import LocalStorage
+    from app.storage.service import get_backend
 
-    storage = LocalStorage()
+    storage = get_backend()
     try:
         data = await storage.read(file_path)
     except FileNotFoundError as exc:

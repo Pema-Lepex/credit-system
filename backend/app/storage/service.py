@@ -71,6 +71,10 @@ def get_backend() -> StorageBackend:
             from app.storage.s3 import S3Storage
 
             _backend = S3Storage()
+        elif settings.STORAGE_BACKEND is BackendKind.db:
+            from app.storage.database import DatabaseStorage
+
+            _backend = DatabaseStorage()
         else:
             _backend = LocalStorage()
     return _backend
