@@ -82,6 +82,15 @@ export const REGISTER_MUTATION = /* GraphQL */ `
   }
 `;
 
+// Public, unauthenticated. Returns the W3Forms access key the browser uses to email
+// the super-admin about a new signup (see lib/auth/registration-notice.ts for why
+// the notice is sent client-side). Null when no key is configured.
+export const REGISTRATION_NOTICE_KEY_QUERY = /* GraphQL */ `
+  query RegistrationNoticeKey {
+    registrationNoticeKey
+  }
+`;
+
 // NOTE: the refresh mutation deliberately lives in `lib/graphql/client.ts`, not here.
 // The client owns the refresh loop (one shared in-flight promise for N waiters), and
 // it must not import from the auth layer that imports from it.

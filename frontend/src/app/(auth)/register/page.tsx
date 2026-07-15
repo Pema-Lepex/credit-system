@@ -15,6 +15,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { notifySuperAdminOfSignup } from "@/lib/auth/registration-notice";
 import { GraphQLRequestError } from "@/lib/graphql/client";
 import { registerSchema, type RegisterValues } from "@/lib/validation/auth";
 
@@ -52,6 +53,13 @@ export default function RegisterPage() {
         password: values.password,
         fullName: values.fullName,
         businessName: values.businessName,
+      });
+      // Tell the super-admin, from the browser (W3Forms' free tier only accepts
+      // client-side sends). Fire-and-forget: it must never delay or fail the signup.
+      void notifySuperAdminOfSignup({
+        businessName: values.businessName,
+        ownerName: values.fullName,
+        email: values.email,
       });
       toast.success("Workspace created", { description: "Welcome to Credit Manager." });
       router.replace("/dashboard");

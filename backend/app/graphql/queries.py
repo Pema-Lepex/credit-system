@@ -112,7 +112,7 @@ from app.services.customer import CustomerService
 from app.services.export import ExportService
 from app.services.notification import NotificationService
 from app.services.payment import PaymentFilter, PaymentService
-from app.services.platform import PlatformService
+from app.services.platform import PlatformService, resolve_registration_notice_key
 from app.services.reminder import ReminderService
 from app.services.reports import ReportService
 from app.services.retention import RetentionService
@@ -253,6 +253,21 @@ class Query:
     def platform_settings(self, info: strawberry.Info) -> PlatformSettingsType:
         ctx = _ctx(info)
         return m.to_platform_settings(PlatformService(ctx).get())
+
+    @strawberry.field(
+        description=(
+            "The W3Forms access key used to email the super-admin when a new store "
+            "owner signs up. Returned in the clear and WITHOUT authentication ON "
+            "PURPOSE: a W3Forms access key is a client-side credential -- its only "
+            "power is to POST a notice to the operator's own inbox, it reads nothing "
+            "-- and W3Forms' free tier accepts submissions from a browser but rejects "
+            "them from a server (HTTP 403, 'Pro plan required'). So the register page "
+            "reads this key and sends the notice itself, client-side. Null when no key "
+            "is configured (dashboard first, then env)."
+        )
+    )
+    def registration_notice_key(self, info: strawberry.Info) -> str | None:
+        return resolve_registration_notice_key(_ctx(info).session)
 
     # =====================================================================
     # Customers
