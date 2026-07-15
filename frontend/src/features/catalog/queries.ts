@@ -95,12 +95,23 @@ export function useCategories() {
 
 export function useCreateCategory(): UseMutationResult<CategoryRecord, unknown, CategoryInput> {
   const invalidate = useInvalidateCatalog();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CategoryInput) =>
       gqlRequest<CreateCategoryResult>(CREATE_CATEGORY_MUTATION, { input }).then(
         (d) => d.createCategory,
       ),
-    onSuccess: () => invalidate(catalogKeys.categories),
+    onSuccess: (created) => {
+      // Write the new row straight into the cache, sorted by name, before the
+      // refetch settles. This makes "add another category" reliable even if the
+      // background refetch is briefly deduped, in flight, or momentarily stale —
+      // the second, third, fourth category all appear immediately.
+      queryClient.setQueryData<CategoryRecord[]>(catalogKeys.categories, (prev) => {
+        const next = [...(prev ?? []).filter((c) => c.id !== created.id), created];
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      invalidate(catalogKeys.categories);
+    },
   });
 }
 
