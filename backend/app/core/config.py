@@ -120,6 +120,12 @@ class Settings(BaseSettings):
         ]
     )
 
+    # Absolute base URL of the frontend, used to build links that land in a user's
+    # inbox (the password-reset link, e.g. https://your-app.vercel.app). If unset we
+    # fall back to the first CORS origin, which is already the frontend's URL -- see
+    # the frontend_base_url property. Set it explicitly in production to be safe.
+    FRONTEND_BASE_URL: str | None = None
+
     # --- Database -----------------------------------------------------------
     # DEV default: file-backed SQLite in /database. Zero setup, and fine for one shop.
     #
@@ -303,6 +309,16 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT is Environment.production
+
+    @property
+    def frontend_base_url(self) -> str:
+        """Where the frontend lives, for links emailed to users (password reset).
+
+        Prefers the explicit FRONTEND_BASE_URL; otherwise the first CORS origin, which
+        is the frontend's own URL. Trailing slash stripped so callers can append a path.
+        """
+        base = self.FRONTEND_BASE_URL or (self.CORS_ORIGINS[0] if self.CORS_ORIGINS else "")
+        return base.rstrip("/")
 
     def assert_production_ready(self) -> None:
         """Fail fast rather than run production on dev defaults.

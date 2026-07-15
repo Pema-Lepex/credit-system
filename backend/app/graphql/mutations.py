@@ -29,6 +29,7 @@ from typing import Any
 
 import strawberry
 
+from app.core.config import settings
 from app.core.errors import ValidationError
 from app.core.security import Permission
 from app.email.platform import notify_super_admin_new_registration
@@ -292,6 +293,11 @@ class Mutation:
                     # that the except-block below swallowed, so password-reset mail was
                     # never sent -- and never looked broken, because the response is
                     # identical either way.
+                    # A clickable link to the reset page carrying the token in the URL,
+                    # because that is the ONLY way the reset page accepts it (it reads
+                    # ?token=…; there is no code-entry field). The raw code is shown too
+                    # as a fallback for clients that flatten the button to plain text.
+                    reset_url = f"{settings.frontend_base_url}/reset-password?token={raw_token}"
                     await EmailService(ctx.session).send_raw(
                         ctx.session,
                         business,
@@ -300,9 +306,15 @@ class Mutation:
                         subject="Reset your password",
                         body_html=(
                             f"<p>Hello {user.full_name},</p>"
-                            "<p>Use the code below to set a new password. It expires shortly, "
-                            "and it can only be used once.</p>"
-                            f"<p><code>{raw_token}</code></p>"
+                            "<p>We received a request to reset your password. Click the "
+                            "button below to choose a new one. This link expires shortly "
+                            "and can only be used once.</p>"
+                            f'<p><a href="{reset_url}" '
+                            'style="display:inline-block;padding:11px 20px;border-radius:8px;'
+                            'background:#1c7a5b;color:#ffffff;text-decoration:none;'
+                            'font-weight:600">Reset your password</a></p>'
+                            "<p style=\"font-size:13px;color:#667\">Or paste this link into "
+                            f'your browser:<br><a href="{reset_url}">{reset_url}</a></p>'
                             "<p>If you did not ask for this, you can ignore this email — "
                             "your password has not changed.</p>"
                         ),
