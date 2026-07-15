@@ -157,3 +157,50 @@ export async function downloadFile(path: string, fallbackFilename: string): Prom
   anchor.remove();
   URL.revokeObjectURL(objectUrl);
 }
+
+/**
+ * GET a binary endpoint with the bearer token and open it INLINE in a new tab.
+ *
+ * Same auth dance as downloadFile — an <a target="_blank"> can't carry a bearer
+ * token, so we pull the bytes as a blob first. Wrapping them in a blob URL also
+ * drops the server's `Content-Disposition: attachment`, so the browser renders the
+ * file instead of saving it: PDFs and JSON/CSV display inline; a format the browser
+ * cannot render (XLSX) simply downloads, which is the right fallback.
+ *
+ * The object URL is revoked on a delay, NOT immediately: revoking it now would pull
+ * the bytes out from under the tab before it has finished loading them.
+ */
+export async function viewFile(path: string): Promise<void> {
+  const response = await authedFetch((token) =>
+    fetch(`${API_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }),
+  );
+
+  if (!response.ok) {
+    throw new HttpError(
+      await messageFromResponse(
+        response,
+        response.status === 410
+          ? "This file has expired and is no longer available."
+          : "Could not open the file.",
+      ),
+      response.status,
+    );
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const opened = window.open(objectUrl, "_blank", "noopener");
+  if (!opened) {
+    // Popup blocked: fall back to a download so the click still does something.
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = "";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+  // Give the new tab time to fetch the bytes before releasing them.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}

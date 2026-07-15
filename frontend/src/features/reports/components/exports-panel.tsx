@@ -1,7 +1,7 @@
 "use client";
 
 import { differenceInMinutes } from "date-fns";
-import { Download, FileDown, FileSpreadsheet } from "lucide-react";
+import { Download, Eye, FileDown, FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -32,7 +32,7 @@ import {
   useExports,
   type ExportJob,
 } from "@/features/reports/api";
-import { downloadFile } from "@/features/settings/lib/http";
+import { downloadFile, viewFile } from "@/features/settings/lib/http";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { GraphQLRequestError } from "@/lib/graphql/client";
 import { EXPORT_STATE_STYLES, cn, formatBytes, formatDate, formatNumber, toDate } from "@/lib/utils";
@@ -251,6 +251,7 @@ function ExportsTable() {
   const [page, setPage] = useState(1);
   const { data, isLoading, isError } = useExports(page);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
 
   const jobs = data?.items ?? [];
 
@@ -263,6 +264,17 @@ function ExportsTable() {
       toast.error(error instanceof Error ? error.message : "Could not download that export.");
     } finally {
       setDownloading(null);
+    }
+  };
+
+  const view = async (job: ExportJob) => {
+    setViewing(job.id);
+    try {
+      await viewFile(`/api/exports/${job.id}/download`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open that export.");
+    } finally {
+      setViewing(null);
     }
   };
 
@@ -311,7 +323,7 @@ function ExportsTable() {
               <TableHead align="right">Size</TableHead>
               <TableHead>Expires</TableHead>
               <TableHead align="right">
-                <span className="sr-only">Download</span>
+                <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -359,15 +371,26 @@ function ExportsTable() {
 
                   <TableCell align="right">
                     {downloadable ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        leftIcon={<Download />}
-                        isLoading={downloading === job.id}
-                        onClick={() => void download(job)}
-                      >
-                        Download
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={<Eye />}
+                          isLoading={viewing === job.id}
+                          onClick={() => void view(job)}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          leftIcon={<Download />}
+                          isLoading={downloading === job.id}
+                          onClick={() => void download(job)}
+                        >
+                          Download
+                        </Button>
+                      </div>
                     ) : (
                       // No dead button. If the file is gone, say so.
                       <span className="text-muted-foreground text-xs">
