@@ -23,6 +23,7 @@ from typing import Annotated
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 # Repo root = .../credit-system  (this file is backend/app/core/config.py)
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -235,11 +236,19 @@ class Settings(BaseSettings):
         url = v.strip()
 
         if url.startswith("postgres://"):
-            return "postgresql+psycopg://" + url[len("postgres://") :]
-        # `postgresql://` but with no +driver -- add ours. Leave `postgresql+…` alone.
-        if url.startswith("postgresql://"):
-            return "postgresql+psycopg://" + url[len("postgresql://") :]
-        return url
+            url = "postgresql+psycopg://" + url[len("postgres://"):]
+        elif url.startswith("postgresql://"):
+            url = "postgresql+psycopg://" + url[len("postgresql://"):]
+
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+
+        # Remove unsupported parameters
+        query.pop("pgbouncer", None)
+
+        return urlunparse(
+            parsed._replace(query=urlencode(query, doseq=True))
+        )
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
