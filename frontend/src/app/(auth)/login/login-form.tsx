@@ -75,15 +75,26 @@ export function LoginForm() {
       description="Sign in to pick up where you left off."
       error={formError}
       footer={
-        <>
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/register"
-            className="text-primary font-medium underline-offset-4 hover:underline"
-          >
-            Create one
-          </Link>
-        </>
+        <div className="flex flex-col items-center gap-1.5">
+          <span>
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/register"
+              className="text-primary font-medium underline-offset-4 hover:underline"
+            >
+              Create one
+            </Link>
+          </span>
+          <span>
+            New to Lepex?{" "}
+            <Link
+              href="/guide"
+              className="text-primary font-medium underline-offset-4 hover:underline"
+            >
+              See how it works &rarr;
+            </Link>
+          </span>
+        </div>
       }
     >
       <form onSubmit={onSubmit} noValidate className="space-y-4">

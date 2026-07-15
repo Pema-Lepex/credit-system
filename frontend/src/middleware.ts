@@ -24,7 +24,7 @@ const SESSION_COOKIE = "cms_session";
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 /** Reachable in either state — never require a session, never bounce away. */
-const OPEN_ROUTES = ["/terms", "/privacy"];
+const OPEN_ROUTES = ["/terms", "/privacy", "/guide"];
 
 function matches(pathname: string, routes: readonly string[]): boolean {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
