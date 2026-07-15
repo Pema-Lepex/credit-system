@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import strawberry
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from app.core.security import Role, permissions_for
 from app.email.renderer import TemplateVariable
@@ -371,6 +371,208 @@ def to_credit(
         created_at=credit.created_at,
         updated_at=credit.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# LIST mappers -- N+1 avoidance
+# ---------------------------------------------------------------------------
+# `to_credit`/`to_payment` map a SINGLE row and fetch its relations lazily: the
+# customer, the items, every payment (each of which re-fetches ITS customer +
+# credit + receipt file), plus file URLs. Per row that is fine; over a 25-row list
+# it is hundreds of round trips to the database -- the "few seconds to load"
+# symptom. These mappers take the whole page, pre-fetch the related rows in a
+# handful of `IN (...)` queries, and never touch a relation the list does not show.
+#
+# The list fragments (see frontend queries.ts) select scalar columns + a shallow
+# customer, and for payments the receipt URL. They do NOT select credit.items,
+# credit.payments, or credit photo/invoice files -- so those come back empty here
+# by design. The DETAIL resolvers still use to_credit/to_payment, which populate
+# everything.
+def _by_id(session: Session, model: type, ids: set[str]) -> dict[str, object]:
+    """{id: row} for the given ids, in one query (empty set -> no query)."""
+    if not ids:
+        return {}
+    rows = session.exec(select(model).where(col(model.id).in_(ids))).all()  # type: ignore[attr-defined]
+    return {row.id: row for row in rows}
+
+
+def _batch_file_urls(
+    session: Session, file_ids: set[str], *, thumb: bool = False
+) -> dict[str, str]:
+    """{file_id: url} for real file ids, resolving assets in one query.
+
+    url_for(asset) is pure (it builds a key -> URL, no I/O), so once the assets are
+    loaded the per-row URL is free.
+    """
+    assets = _by_id(session, FileAsset, file_ids)
+    storage = StorageService(session)
+    out: dict[str, str] = {}
+    for fid, asset in assets.items():
+        url = storage.url_for(asset, thumb=thumb)  # type: ignore[arg-type]
+        if url:
+            out[fid] = url
+    return out
+
+
+def _customer_row(customer: Customer) -> CustomerType:
+    """to_customer without the two avatar file lookups (not shown in a list)."""
+    return CustomerType(
+        id=strawberry.ID(customer.id),
+        code=customer.code,
+        name=customer.name,
+        phone=customer.phone,
+        email=customer.email,
+        address=customer.address,
+        city=customer.city,
+        latitude=customer.latitude,
+        longitude=customer.longitude,
+        photo_url=None,
+        photo_thumbnail_url=None,
+        notes=customer.notes,
+        status=customer.status,
+        emergency_contact_name=customer.emergency_contact_name,
+        emergency_contact_phone=customer.emergency_contact_phone,
+        emergency_contact_relation=customer.emergency_contact_relation,
+        credit_score=customer.credit_score,
+        credit_limit=_money_or_none(customer.credit_limit),
+        total_credit=money(customer.total_credit),
+        total_paid=money(customer.total_paid),
+        outstanding_balance=money(customer.outstanding_balance),
+        credit_count=customer.credit_count,
+        overdue_count=customer.overdue_count,
+        last_credit_at=customer.last_credit_at,
+        last_payment_at=customer.last_payment_at,
+        created_at=customer.created_at,
+    )
+
+
+def to_customer_rows(session: Session, customers: list[Customer]) -> list[CustomerType]:
+    """A page of customers with avatar files resolved in ONE query.
+
+    Unlike the credit/payment lists, the customer table DOES show the avatar, so we
+    keep the photo -- we just stop fetching each one with its own round trip.
+    """
+    assets = _by_id(session, FileAsset, {c.photo_file_id for c in customers if c.photo_file_id})
+    storage = StorageService(session)
+
+    rows: list[CustomerType] = []
+    for customer in customers:
+        asset = assets.get(customer.photo_file_id or "")
+        rows.append(
+            CustomerType(
+                id=strawberry.ID(customer.id),
+                code=customer.code,
+                name=customer.name,
+                phone=customer.phone,
+                email=customer.email,
+                address=customer.address,
+                city=customer.city,
+                latitude=customer.latitude,
+                longitude=customer.longitude,
+                photo_url=storage.url_for(asset) if asset is not None else None,  # type: ignore[arg-type]
+                photo_thumbnail_url=(
+                    storage.url_for(asset, thumb=True) if asset is not None else None  # type: ignore[arg-type]
+                ),
+                notes=customer.notes,
+                status=customer.status,
+                emergency_contact_name=customer.emergency_contact_name,
+                emergency_contact_phone=customer.emergency_contact_phone,
+                emergency_contact_relation=customer.emergency_contact_relation,
+                credit_score=customer.credit_score,
+                credit_limit=_money_or_none(customer.credit_limit),
+                total_credit=money(customer.total_credit),
+                total_paid=money(customer.total_paid),
+                outstanding_balance=money(customer.outstanding_balance),
+                credit_count=customer.credit_count,
+                overdue_count=customer.overdue_count,
+                last_credit_at=customer.last_credit_at,
+                last_payment_at=customer.last_payment_at,
+                created_at=customer.created_at,
+            )
+        )
+    return rows
+
+
+def to_credit_rows(
+    session: Session, credits: list[Credit], *, today: date | None = None
+) -> list[CreditType]:
+    """A page of credits for the LIST view, with the customer pre-fetched once."""
+    reference = today or datetime.now(UTC).date()
+    customers = _by_id(session, Customer, {c.customer_id for c in credits})
+
+    rows: list[CreditType] = []
+    for credit in credits:
+        customer = customers.get(credit.customer_id)
+        remaining = credit.remaining_amount
+        rows.append(
+            CreditType(
+                id=strawberry.ID(credit.id),
+                number=credit.number,
+                customer_id=strawberry.ID(credit.customer_id),
+                customer=_customer_row(customer) if customer is not None else None,  # type: ignore[arg-type]
+                subtotal=money(credit.subtotal),
+                discount_amount=money(credit.discount_amount),
+                tax_amount=money(credit.tax_amount),
+                grand_total=money(credit.grand_total),
+                amount_paid=money(credit.amount_paid),
+                remaining_amount=money(remaining),
+                discount_percentage=_plain(credit.discount_percentage),
+                tax_percentage=_plain(credit.tax_percentage),
+                currency=credit.currency,
+                issued_date=credit.issued_date,
+                due_date=credit.due_date,
+                reminder_date=credit.reminder_date,
+                paid_at=credit.paid_at,
+                status=credit.status,
+                notes=credit.notes,
+                photo_urls=[],  # not selected by the list fragment; detail uses to_credit
+                invoice_url=None,
+                items=[],
+                payments=[],
+                days_until_due=(credit.due_date - reference).days,
+                is_overdue=remaining > ZERO and credit.due_date < reference,
+                created_at=credit.created_at,
+                updated_at=credit.updated_at,
+            )
+        )
+    return rows
+
+
+def to_payment_rows(session: Session, payments: list[Payment]) -> list[PaymentType]:
+    """A page of payments for the LIST view: customers, credits and receipt URLs
+    resolved in three queries total instead of three per row."""
+    customers = _by_id(session, Customer, {p.customer_id for p in payments})
+    credits = _by_id(session, Credit, {p.credit_id for p in payments})
+    receipts = _batch_file_urls(
+        session, {p.receipt_file_id for p in payments if p.receipt_file_id}
+    )
+
+    rows: list[PaymentType] = []
+    for payment in payments:
+        customer = customers.get(payment.customer_id)
+        credit = credits.get(payment.credit_id)
+        rows.append(
+            PaymentType(
+                id=strawberry.ID(payment.id),
+                number=payment.number,
+                credit_id=strawberry.ID(payment.credit_id),
+                customer_id=strawberry.ID(payment.customer_id),
+                customer_name=customer.name if customer else None,  # type: ignore[attr-defined]
+                credit_number=credit.number if credit else None,  # type: ignore[attr-defined]
+                amount=money(payment.amount),
+                balance_after=money(payment.balance_after),
+                method=payment.method,
+                reference=payment.reference,
+                notes=payment.notes,
+                paid_at=payment.paid_at,
+                receipt_url=receipts.get(payment.receipt_file_id or ""),
+                is_void=payment.voided_at is not None,
+                voided_at=payment.voided_at,
+                void_reason=payment.void_reason,
+                created_at=payment.created_at,
+            )
+        )
+    return rows
 
 
 # ---------------------------------------------------------------------------

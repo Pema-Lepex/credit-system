@@ -6,6 +6,7 @@ import {
   Database,
   HardDrive,
   Mail,
+  ScrollText,
   Trash2,
   User,
   Users,
@@ -69,6 +70,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     icon: Database,
     description: "How long closed records are kept, and what is scheduled for deletion.",
     permission: "settings:read",
+  },
+  {
+    label: "Activity log",
+    href: "/settings/audit",
+    icon: ScrollText,
+    description: "Who created, updated, deleted or restored what — with the fields that changed.",
+    permission: "audit:read",
   },
   {
     label: "Trash",

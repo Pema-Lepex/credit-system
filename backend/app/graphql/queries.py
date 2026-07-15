@@ -46,6 +46,7 @@ from app.graphql.inputs import (
 from app.graphql.types import (
     ActivityItem,
     ArchiveBatchPage,
+    AuditAction,
     AuditLogPage,
     BusinessPage,
     BusinessType,
@@ -227,7 +228,7 @@ class Query:
             sort_desc=sort_desc,
         )
         return CustomerPage(
-            items=[m.to_customer(ctx.session, c) for c in result.items],
+            items=m.to_customer_rows(ctx.session, result.items),
             page_info=page_info(result),
         )
 
@@ -341,7 +342,7 @@ class Query:
         result = svc.list(_to_credit_filter(filter), _page(page), sort_by=sort_by, sort_desc=sort_desc)
         today = _today(svc)
         return CreditPage(
-            items=[m.to_credit(ctx.session, c, today=today) for c in result.items],
+            items=m.to_credit_rows(ctx.session, result.items, today=today),
             page_info=page_info(result),
         )
 
@@ -368,7 +369,7 @@ class Query:
             _to_payment_filter(filter), _page(page), sort_by=sort_by, sort_desc=sort_desc
         )
         return PaymentPage(
-            items=[m.to_payment(ctx.session, p) for p in result.items],
+            items=m.to_payment_rows(ctx.session, result.items),
             page_info=page_info(result),
         )
 
@@ -385,7 +386,7 @@ class Query:
         result = svc.list_deleted(_page(page))
         today = _today(svc)
         return CreditPage(
-            items=[m.to_credit(ctx.session, c, today=today) for c in result.items],
+            items=m.to_credit_rows(ctx.session, result.items, today=today),
             page_info=page_info(result),
         )
 
@@ -396,7 +397,7 @@ class Query:
         ctx = _ctx(info)
         result = PaymentService(ctx).list_deleted(_page(page))
         return PaymentPage(
-            items=[m.to_payment(ctx.session, p) for p in result.items],
+            items=m.to_payment_rows(ctx.session, result.items),
             page_info=page_info(result),
         )
 
@@ -869,6 +870,8 @@ class Query:
         page: PageInput | None = None,
         entity_type: str | None = None,
         entity_id: strawberry.ID | None = None,
+        action: AuditAction | None = None,  # type: ignore[valid-type]
+        search: str | None = None,
     ) -> AuditLogPage:
         from app.utils.pagination import paginate
 
@@ -883,6 +886,11 @@ class Query:
             stmt = stmt.where(AuditLog.entity_type == entity_type)
         if entity_id:
             stmt = stmt.where(AuditLog.entity_id == str(entity_id))
+        if action is not None:
+            stmt = stmt.where(AuditLog.action == action)
+        if search:
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(col(AuditLog.summary).ilike(like))
         stmt = stmt.order_by(col(AuditLog.created_at).desc())
 
         result = paginate(ctx.session, stmt, _page(page))
