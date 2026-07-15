@@ -85,7 +85,20 @@ def reset_backend() -> None:
 class StorageService:
     def __init__(self, session: Session, backend: StorageBackend | None = None) -> None:
         self.session = session
-        self.backend = backend or get_backend()
+        # LAZY on purpose. Constructing the backend can fail (e.g. STORAGE_BACKEND=
+        # cloudinary with no credentials), and most StorageService uses never touch it:
+        # ``url_for_id(None)`` for an avatar-less user returns None without any storage
+        # call. Building the client eagerly here made every user/business response 500
+        # -- signup, login, the dashboard -- the instant a production storage backend
+        # was selected but not yet configured. The backend is now built on first real
+        # use, so a misconfigured store only breaks operations that actually need it.
+        self._backend = backend
+
+    @property
+    def backend(self) -> StorageBackend:
+        if self._backend is None:
+            self._backend = get_backend()
+        return self._backend
 
     # -- upload --------------------------------------------------------------
     async def upload(

@@ -6,6 +6,7 @@ import {
   Database,
   HardDrive,
   Mail,
+  Trash2,
   User,
   Users,
   type LucideIcon,
@@ -68,6 +69,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     icon: Database,
     description: "How long closed records are kept, and what is scheduled for deletion.",
     permission: "settings:read",
+  },
+  {
+    label: "Trash",
+    href: "/settings/trash",
+    icon: Trash2,
+    description: "Deleted credits and payments — restore them or delete them permanently.",
+    permission: "credit:delete",
   },
   {
     label: "Profile",

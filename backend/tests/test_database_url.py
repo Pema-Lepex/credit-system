@@ -82,6 +82,21 @@ def test_production_refuses_local_storage() -> None:
         settings.assert_production_ready()
 
 
+def test_production_refuses_cloudinary_without_credentials() -> None:
+    """Selecting cloudinary but not configuring it made every user/business response
+    500 (StorageError when the backend is built). Fail loudly at boot instead."""
+    settings = Settings(
+        ENVIRONMENT="production",
+        DEBUG=False,
+        SECRET_KEY="a-real-secret",
+        EMAIL_PROVIDER="smtp",
+        DATABASE_URL=f"postgres://{PG}",
+        STORAGE_BACKEND="cloudinary",
+    )
+    with pytest.raises(RuntimeError, match="no credentials are set"):
+        settings.assert_production_ready()
+
+
 def test_a_correct_production_config_boots() -> None:
     settings = Settings(
         ENVIRONMENT="production",
@@ -90,5 +105,6 @@ def test_a_correct_production_config_boots() -> None:
         EMAIL_PROVIDER="smtp",
         DATABASE_URL=f"postgres://{PG}",
         STORAGE_BACKEND="cloudinary",
+        CLOUDINARY_URL="cloudinary://key:secret@cloud-name",
     )
     settings.assert_production_ready()  # must not raise

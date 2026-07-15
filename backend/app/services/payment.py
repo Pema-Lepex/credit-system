@@ -182,6 +182,102 @@ class PaymentService(BaseService):
         )
         return payment
 
+    # ----------------------------------------------------------------- trash
+    # void() reverses a payment but keeps it visible on the credit as "voided". These
+    # send it to the Trash instead: hidden from the credit, its amount returned to the
+    # outstanding balance, recoverable, and destroyable for good. All PAYMENT_DELETE
+    # (admin-only). recalculate() already excludes deleted_at payments (see
+    # CreditService), so the balance follows automatically.
+    def _recalc_credit(self, ctx: ServiceContext, credit_id: str) -> None:
+        credit = self.session.get(Credit, credit_id)
+        if credit is None:
+            return
+        self.session.refresh(credit)
+        CreditService(ctx).recalculate(credit, today=today_in(self.get_business().timezone))
+        self.session.flush()
+        self._sync_customer(credit.customer_id)
+
+    def soft_delete(self, ctx: ServiceContext, payment_id: str) -> Payment:
+        """Send a payment to the Trash. Its amount returns to the credit's balance."""
+        self.require(Permission.PAYMENT_DELETE)
+        payment = self.get(payment_id)  # get() already refuses an already-deleted one
+
+        payment.deleted_at = utcnow()
+        self.session.add(payment)
+        self.session.flush()
+        self._recalc_credit(ctx, payment.credit_id)
+
+        if payment.receipt_file_id:
+            StorageService(self.session).detach(payment.receipt_file_id)
+
+        self.audit(
+            AuditAction.DELETE, "payment", payment.id,
+            f"Deleted payment {payment.number} ({self.get_business().currency} {payment.amount})",
+        )
+        return payment
+
+    def get_deleted(self, payment_id: str) -> Payment:
+        self.require(Permission.PAYMENT_DELETE)
+        payment = self.session.get(Payment, payment_id)
+        if payment is None or payment.deleted_at is None:
+            raise NotFoundError("Deleted payment not found")
+        self.assert_in_scope(payment.business_id)
+        return payment
+
+    def list_deleted(self, page: PageInput | None = None) -> Page[Payment]:
+        """The Trash view for payments: deleted_at set, newest first."""
+        self.require(Permission.PAYMENT_DELETE)
+        stmt = (
+            select(Payment)
+            .where(
+                Payment.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(Payment.deleted_at).is_not(None),
+            )
+            .order_by(col(Payment.deleted_at).desc())
+        )
+        return paginate(self.session, stmt, page or PageInput())
+
+    def restore(self, ctx: ServiceContext, payment_id: str) -> Payment:
+        """Bring a payment back from the Trash and re-apply it to the balance.
+
+        Refused if re-applying it would overpay the credit -- e.g. someone recorded a
+        replacement payment while this one sat in the Trash. Restoring blindly would
+        push amount_paid past grand_total.
+        """
+        payment = self.get_deleted(payment_id)
+        credit = self.session.get(Credit, payment.credit_id)
+        if credit is not None:
+            already_paid = quantize_money(
+                sum(
+                    (p.amount for p in credit.payments
+                     if p.voided_at is None and p.deleted_at is None),
+                    Decimal("0"),
+                )
+            )
+            if already_paid + payment.amount > credit.grand_total:
+                raise ConflictError(
+                    f"Restoring {payment.number} would overpay credit {credit.number}. "
+                    "Void or delete the newer payment first."
+                )
+
+        payment.deleted_at = None
+        self.session.add(payment)
+        self.session.flush()
+        self._recalc_credit(ctx, payment.credit_id)
+        self.audit(AuditAction.UPDATE, "payment", payment.id, f"Restored payment {payment.number}")
+        return payment
+
+    def permanent_delete(self, payment_id: str) -> str:
+        """Destroy a trashed payment for good. The balance already excludes it."""
+        payment = self.get_deleted(payment_id)
+        number = payment.number
+        self.session.delete(payment)
+        self.session.flush()
+        self.audit(
+            AuditAction.DELETE, "payment", payment_id, f"Permanently deleted payment {number}"
+        )
+        return number
+
     # ------------------------------------------------------------------ reads
     def get(self, payment_id: str) -> Payment:
         self.require(Permission.PAYMENT_READ)

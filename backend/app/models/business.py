@@ -143,7 +143,7 @@ class Business(BaseEntity, table=True):
     # --- Retention / storage ------------------------------------------------
     retention_policy: RetentionPolicy = Field(default=RetentionPolicy.DAYS_30, max_length=16)
     retention_notifications_enabled: bool = Field(default=True)
-    storage_quota_mb: int = Field(default=500)   # soft cap; warns, does not block
+    storage_quota_mb: int = Field(default=5000)  # 5 GB soft cap; warns, does not block
 
     # --- Platform -----------------------------------------------------------
     is_active: bool = Field(default=True, index=True)

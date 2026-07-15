@@ -150,9 +150,17 @@ class CreditService(BaseService):
         credit.tax_amount = quantize_money(item_tax + credit_tax)
         credit.grand_total = quantize_money(subtotal - total_discount + credit.tax_amount)
 
-        # -- I2: paid, from the ledger (voided payments do not count) --------
+        # -- I2: paid, from the ledger (voided AND soft-deleted do not count) --
+        # Soft-deleted payments (in the Trash) must not count toward what has been
+        # paid -- otherwise deleting a payment would leave the credit's balance wrong
+        # until a hard delete. Excluding deleted_at here is what makes "send a payment
+        # to Trash" correctly return its amount to the outstanding balance, and what
+        # makes "restore" put it back.
         paid = quantize_money(
-            sum((p.amount for p in credit.payments if p.voided_at is None), ZERO)
+            sum(
+                (p.amount for p in credit.payments if p.voided_at is None and p.deleted_at is None),
+                ZERO,
+            )
         )
         credit.amount_paid = paid
 
@@ -472,6 +480,69 @@ class CreditService(BaseService):
         self._sync_customer(credit.customer_id)
         self.audit(AuditAction.DELETE, "credit", credit.id, f"Deleted credit {credit.number}")
         return credit
+
+    # ----------------------------------------------------------------- trash
+    # soft_delete (above) sends a credit to the Trash. These three manage it there:
+    # list it, restore it, or destroy it for good. Every one is CREDIT_DELETE, which
+    # is an admin-only permission -- staff cannot reach the Trash at all.
+    def get_deleted(self, credit_id: str) -> Credit:
+        """Fetch a credit that IS in the Trash (the inverse of get())."""
+        self.require(Permission.CREDIT_DELETE)
+        credit = self.session.get(Credit, credit_id)
+        if credit is None or credit.deleted_at is None:
+            raise NotFoundError("Deleted credit not found")
+        self.assert_in_scope(credit.business_id)
+        return credit
+
+    def list_deleted(self, page: PageInput | None = None) -> Page[Credit]:
+        """The Trash view: credits with deleted_at set, newest first."""
+        self.require(Permission.CREDIT_DELETE)
+        stmt = (
+            select(Credit)
+            .where(
+                Credit.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(Credit.deleted_at).is_not(None),
+            )
+            .order_by(col(Credit.deleted_at).desc())
+        )
+        return paginate(self.session, stmt, page or PageInput())
+
+    def restore(self, credit_id: str, *, today: date | None = None) -> Credit:
+        """Bring a credit back out of the Trash, balances and status re-derived."""
+        credit = self.get_deleted(credit_id)
+        credit.deleted_at = None
+        self.session.add(credit)
+        self.session.flush()
+        # A credit's status can have moved on while it sat in the Trash (its due date
+        # may now be in the past). recalculate() re-derives status from the data.
+        self.recalculate(credit, today=today)
+        self.session.flush()
+        self._sync_customer(credit.customer_id)
+        self.audit(AuditAction.UPDATE, "credit", credit.id, f"Restored credit {credit.number}")
+        return credit
+
+    def permanent_delete(self, credit_id: str) -> str:
+        """Destroy a trashed credit for good. Returns its number for the audit trail.
+
+        Only reachable for a credit already IN the Trash -- you cannot skip the
+        soft-delete step. Its line items go with it via the ORM cascade; the customer's
+        rolled-up totals are re-synced so the deletion is reflected immediately.
+        """
+        credit = self.get_deleted(credit_id)
+        number = credit.number
+        customer_id = credit.customer_id
+
+        # Release any files this credit still referenced, so a hard delete does not
+        # strand bytes in storage with a now-dangling reference count.
+        storage = StorageService(self.session)
+        storage.detach_many(credit.photo_file_ids)
+        storage.detach(credit.invoice_file_id)
+
+        self.session.delete(credit)  # cascade removes credit_item rows
+        self.session.flush()
+        self._sync_customer(customer_id)
+        self.audit(AuditAction.DELETE, "credit", credit_id, f"Permanently deleted credit {number}")
+        return number
 
     # ------------------------------------------------------------------ reads
     def get(self, credit_id: str) -> Credit:

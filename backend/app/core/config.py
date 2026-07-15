@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: StorageBackend = StorageBackend.local
     UPLOAD_DIR: Path = ROOT_DIR / "uploads"
     PUBLIC_FILES_URL: str = "/api/files"       # how the frontend addresses a file
-    MAX_UPLOAD_MB: int = 10
+    MAX_UPLOAD_MB: int = 25
     IMAGE_MAX_DIMENSION: int = 1600            # long edge, px -- everything larger is downscaled
     IMAGE_QUALITY: int = 82                    # WebP/JPEG quality after compression
     THUMBNAIL_DIMENSION: int = 320             # long edge, px
@@ -240,15 +240,19 @@ class Settings(BaseSettings):
         elif url.startswith("postgresql://"):
             url = "postgresql+psycopg://" + url[len("postgresql://"):]
 
-        parsed = urlparse(url)
-        query = parse_qs(parsed.query)
+        # Query-param cleanup applies ONLY to Postgres URLs, and must not run on a
+        # sqlite URL: urlparse/urlunparse round-trips `sqlite:///path` (empty netloc)
+        # back as `sqlite:/path`, dropping two slashes and breaking the connection.
+        # Postgres URLs have a real netloc, so they survive the round-trip intact.
+        if url.startswith("postgresql"):
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query)
+            # Supabase's pooler appends ?pgbouncer=true (a Prisma-ism); libpq/psycopg
+            # does not know it and would reject the connection.
+            query.pop("pgbouncer", None)
+            url = urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
-        # Remove unsupported parameters
-        query.pop("pgbouncer", None)
-
-        return urlunparse(
-            parsed._replace(query=urlencode(query, doseq=True))
-        )
+        return url
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -307,6 +311,19 @@ class Settings(BaseSettings):
                 "STORAGE_BACKEND=local writes uploads to the container filesystem, "
                 "which is wiped on every redeploy. Use STORAGE_BACKEND=cloudinary (or s3)"
             )
+        # Selecting a backend but not configuring it is the subtler trap: the app boots,
+        # then throws on the first request that renders any file URL. Catch it here so a
+        # misconfiguration is a loud boot failure, not a mystery 500 on signup.
+        if self.STORAGE_BACKEND is StorageBackend.cloudinary and not (
+            self.CLOUDINARY_URL
+            or (self.CLOUDINARY_CLOUD_NAME and self.CLOUDINARY_API_KEY and self.CLOUDINARY_API_SECRET)
+        ):
+            problems.append(
+                "STORAGE_BACKEND=cloudinary but no credentials are set. Add CLOUDINARY_URL "
+                "(cloudinary://key:secret@cloud-name from your Cloudinary dashboard)"
+            )
+        if self.STORAGE_BACKEND is StorageBackend.s3 and not self.S3_BUCKET:
+            problems.append("STORAGE_BACKEND=s3 but S3_BUCKET is not set")
 
         if problems:
             raise RuntimeError("Refusing to start in production: " + "; ".join(problems))

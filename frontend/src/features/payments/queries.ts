@@ -125,6 +125,22 @@ export const VOID_PAYMENT_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * Soft-delete: moves the payment to the Trash rather than destroying it. Its
+ * amount comes off the credit's balance immediately, and it can be restored (or
+ * permanently deleted) from Settings → Trash. Distinct from voiding, which keeps
+ * the row on the ledger, struck through.
+ */
+export const DELETE_PAYMENT_MUTATION = /* GraphQL */ `
+  mutation DeletePayment($id: ID!) {
+    deletePayment(id: $id) {
+      id
+      number
+      creditId
+    }
+  }
+`;
+
 export interface PaymentsQueryVariables {
   filter: PaymentFilterInput;
   page: PageInput;

@@ -16,6 +16,7 @@ import {
   type PaymentListState,
 } from "@/features/payments/lib/filters";
 import {
+  DELETE_PAYMENT_MUTATION,
   PAYMENTS_QUERY,
   RECORD_PAYMENT_MUTATION,
   VOID_PAYMENT_MUTATION,
@@ -151,6 +152,35 @@ export function useVoidPayment() {
     },
     onError: (error) => {
       toast.error("Could not void the payment", {
+        description: parseApiError(error).message,
+      });
+    },
+  });
+}
+
+/**
+ * Delete a payment to the Trash (soft-delete). Reverses its amount off the
+ * credit immediately; recoverable from Settings → Trash. Admin-only on the
+ * server (PAYMENT_DELETE).
+ */
+export function useDeletePayment() {
+  const invalidate = useInvalidatePaymentWrites();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: ID) =>
+      gqlRequest<{ deletePayment: PaymentRow }, { id: ID }>(DELETE_PAYMENT_MUTATION, { id }).then(
+        (data) => data.deletePayment,
+      ),
+    onSuccess: (payment) => {
+      invalidate(payment.creditId);
+      void queryClient.invalidateQueries({ queryKey: ["trash"] });
+      toast.success(`Payment ${payment.number} moved to Trash`, {
+        description: "Its amount is back on the credit. Restore it any time from Settings → Trash.",
+      });
+    },
+    onError: (error) => {
+      toast.error("Could not delete the payment", {
         description: parseApiError(error).message,
       });
     },

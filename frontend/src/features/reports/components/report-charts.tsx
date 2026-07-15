@@ -87,7 +87,11 @@ export function TrendChart({ rows, money }: TrendChartProps) {
             description="Pick a wider date range, or record a credit to see it here."
           />
         ) : (
-          <div className="h-72 w-full">
+          // min-w-0 + overflow-hidden: Recharts' ResponsiveContainer can momentarily
+          // report a width wider than a narrow viewport and push the whole page into a
+          // horizontal scroll. Letting this box shrink and clipping overspill keeps the
+          // report within the screen on phones.
+          <div className="h-72 w-full min-w-0 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                 {/* Recessive grid: horizontal only. Vertical lines add ink, not meaning. */}
@@ -230,7 +234,7 @@ export function MethodChart({ byMethod, money }: MethodChartProps) {
           />
         ) : (
           <div className="space-y-4">
-            <div className="h-56 w-full">
+            <div className="h-56 w-full min-w-0 overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -339,7 +343,10 @@ export function TopCustomersChart({ customers, money }: TopCustomersChartProps) 
             description="Enjoy it while it lasts."
           />
         ) : (
-          <div style={{ height: Math.max(200, data.length * 40) }} className="w-full">
+          <div
+            style={{ height: Math.max(200, data.length * 40) }}
+            className="w-full min-w-0 overflow-hidden"
+          >
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data}

@@ -7,7 +7,7 @@ import {
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
-import { Ban, Download, MoreHorizontal } from "lucide-react";
+import { Ban, Download, MoreHorizontal, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -39,6 +39,7 @@ export interface PaymentsTableProps {
   sortDesc: boolean;
   onSortChange: (field: PaymentSortField, desc: boolean) => void;
   onVoid: (payment: PaymentRow) => void;
+  onDelete: (payment: PaymentRow) => void;
   isFetching?: boolean;
 }
 
@@ -60,6 +61,7 @@ export function PaymentsTable({
   sortDesc,
   onSortChange,
   onVoid,
+  onDelete,
   isFetching,
 }: PaymentsTableProps) {
   const money = useMoney();
@@ -67,6 +69,7 @@ export function PaymentsTable({
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const canVoid = hasPermission("payment:delete");
+  const canDelete = hasPermission("payment:delete");
 
   const sorting = useMemo<SortingState>(
     () => [{ id: sortField, desc: sortDesc }],
@@ -197,13 +200,23 @@ export function PaymentsTable({
                     Void payment
                   </DropdownMenuItem>
                 ) : null}
+
+                {canDelete ? (
+                  <DropdownMenuItem
+                    icon={<Trash2 />}
+                    destructive
+                    onSelect={() => onDelete(payment)}
+                  >
+                    Delete payment
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           );
         },
       }),
     ],
-    [canVoid, downloading, money, onVoid],
+    [canVoid, canDelete, downloading, money, onVoid, onDelete],
   );
 
   const table = useReactTable({
@@ -344,6 +357,20 @@ export function PaymentsTable({
                 >
                   <Ban aria-hidden="true" className="size-3.5" />
                   Void
+                </button>
+              ) : null}
+
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={() => onDelete(payment)}
+                  className={cn(
+                    "text-destructive-soft-foreground focus-visible:ring-ring inline-flex items-center gap-1.5 rounded-md text-xs font-medium focus-visible:ring-2 focus-visible:outline-none",
+                    !(canVoid && !payment.isVoid) && "ml-auto",
+                  )}
+                >
+                  <Trash2 aria-hidden="true" className="size-3.5" />
+                  Delete
                 </button>
               ) : null}
             </div>

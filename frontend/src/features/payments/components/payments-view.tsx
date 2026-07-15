@@ -10,10 +10,12 @@ import {
   Button,
   Card,
   CardContent,
+  ConfirmDialog,
   EmptyState,
   Pagination,
   SkeletonTable,
 } from "@/components/ui";
+import { useMoney } from "@/features/credits/hooks/use-business-settings";
 import { parseApiError } from "@/features/credits/lib/errors";
 import {
   CUSTOMER_BY_ID_QUERY,
@@ -24,7 +26,7 @@ import {
 import { PaymentsFilters } from "@/features/payments/components/payments-filters";
 import { PaymentsTable } from "@/features/payments/components/payments-table";
 import { VoidPaymentDialog } from "@/features/payments/components/void-payment-dialog";
-import { usePaymentList } from "@/features/payments/hooks/use-payments";
+import { useDeletePayment, usePaymentList } from "@/features/payments/hooks/use-payments";
 import { countActivePaymentFilters, DEFAULT_PAGE_SIZE } from "@/features/payments/lib/filters";
 import type { PaymentRow } from "@/features/payments/queries";
 import { gqlRequest } from "@/lib/graphql/client";
@@ -34,8 +36,12 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 export function PaymentsView() {
   const { state, update, reset, query } = usePaymentList();
 
+  const money = useMoney();
+  const deletePayment = useDeletePayment();
+
   const [customer, setCustomer] = useState<CustomerOption | null>(null);
   const [voidTarget, setVoidTarget] = useState<PaymentRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PaymentRow | null>(null);
 
   const customerQuery = useQuery({
     queryKey: creditKeys.customerById(state.customerId ?? ""),
@@ -129,6 +135,7 @@ export function PaymentsView() {
             sortDesc={state.sortDesc}
             onSortChange={(sortField, sortDesc) => update({ sortField, sortDesc })}
             onVoid={setVoidTarget}
+            onDelete={setDeleteTarget}
             isFetching={query.isFetching}
           />
 
@@ -148,6 +155,30 @@ export function PaymentsView() {
         open={voidTarget !== null}
         onOpenChange={(open) => !open && setVoidTarget(null)}
         payment={voidTarget}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete this payment?"
+        description={
+          deleteTarget ? (
+            <>
+              Payment <strong>{deleteTarget.number}</strong> of{" "}
+              <strong>{money.format(deleteTarget.amount)}</strong> will move to the Trash and its
+              amount will go back onto the credit&apos;s balance. You can restore it any time from
+              Settings → Trash — nothing is permanently removed here.
+            </>
+          ) : null
+        }
+        confirmLabel="Move to Trash"
+        destructive
+        isLoading={deletePayment.isPending}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deletePayment.mutateAsync(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
       />
     </div>
   );

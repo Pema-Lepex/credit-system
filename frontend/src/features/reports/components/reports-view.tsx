@@ -140,7 +140,7 @@ export function ReportsView() {
 
           <TrendChart rows={report.rows} money={money} />
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
             <MethodChart byMethod={report.byMethod} money={money} />
             <TopCustomersChart customers={report.topCustomers} money={money} />
           </div>

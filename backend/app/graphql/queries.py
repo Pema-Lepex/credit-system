@@ -372,6 +372,34 @@ class Query:
             page_info=page_info(result),
         )
 
+    # =====================================================================
+    # Trash (deleted credits + payments). Admin-only -- the services require
+    # CREDIT_DELETE / PAYMENT_DELETE, which staff do not hold.
+    # =====================================================================
+    @strawberry.field(description="Credits in the Trash: soft-deleted, recoverable.")
+    def deleted_credits(
+        self, info: strawberry.Info, page: PageInput | None = None
+    ) -> CreditPage:
+        ctx = _ctx(info)
+        svc = CreditService(ctx)
+        result = svc.list_deleted(_page(page))
+        today = _today(svc)
+        return CreditPage(
+            items=[m.to_credit(ctx.session, c, today=today) for c in result.items],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field(description="Payments in the Trash: soft-deleted, recoverable.")
+    def deleted_payments(
+        self, info: strawberry.Info, page: PageInput | None = None
+    ) -> PaymentPage:
+        ctx = _ctx(info)
+        result = PaymentService(ctx).list_deleted(_page(page))
+        return PaymentPage(
+            items=[m.to_payment(ctx.session, p) for p in result.items],
+            page_info=page_info(result),
+        )
+
     @strawberry.field(
         description="Every payment on a credit, VOIDED ONES INCLUDED -- the ledger is append-only "
         "and the UI strikes voids through rather than hiding them."

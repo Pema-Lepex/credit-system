@@ -391,8 +391,16 @@ export function CreditForm({ credit }: CreditFormProps) {
           </div>
 
           {/* -------------------------------------------------------- summary */}
-          <div className="space-y-6">
-            <Card className="lg:sticky lg:top-20">
+          {/*
+            The WHOLE summary column sticks as one unit — totals card AND the
+            submit/cancel buttons. Making only the card sticky (as it was) left the
+            button below it in normal flow: on a tall form it scrolled off the top
+            while the card stayed pinned, so the "Create credit" button vanished
+            behind the totals. `self-start` stops the grid from stretching this
+            column to the row's full height, which would leave sticky no room to move.
+          */}
+          <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
+            <Card>
               <CardHeader className="pb-4">
                 <CardTitle>Totals</CardTitle>
                 <CardDescription>

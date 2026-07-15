@@ -716,6 +716,25 @@ class Mutation:
         credit = svc.soft_delete(ctx, str(id))
         return m.to_credit(ctx.session, credit, today=_business_today(svc))
 
+    @strawberry.mutation(description="Restore a credit from the Trash. Admin only.")
+    @commits
+    def restore_credit(self, info: strawberry.Info, id: strawberry.ID) -> CreditType:
+        ctx = _ctx(info)
+        svc = CreditService(ctx)
+        credit = svc.restore(str(id), today=_business_today(svc))
+        return m.to_credit(ctx.session, credit, today=_business_today(svc))
+
+    @strawberry.mutation(
+        description="Permanently delete a credit that is already in the Trash. Cannot be undone. Admin only."
+    )
+    @commits
+    def permanently_delete_credit(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> MessagePayload:
+        ctx = _ctx(info)
+        number = CreditService(ctx).permanent_delete(str(id))
+        return MessagePayload(success=True, message=f"Credit {number} permanently deleted.")
+
     # =====================================================================
     # Payments
     # =====================================================================
@@ -755,6 +774,31 @@ class Mutation:
     ) -> PaymentType:
         ctx = _ctx(info)
         return m.to_payment(ctx.session, PaymentService(ctx).void(ctx, str(id), reason))
+
+    @strawberry.mutation(
+        description="Send a payment to the Trash. Its amount returns to the credit's balance. Admin only."
+    )
+    @commits
+    def delete_payment(self, info: strawberry.Info, id: strawberry.ID) -> PaymentType:
+        ctx = _ctx(info)
+        return m.to_payment(ctx.session, PaymentService(ctx).soft_delete(ctx, str(id)))
+
+    @strawberry.mutation(description="Restore a payment from the Trash. Admin only.")
+    @commits
+    def restore_payment(self, info: strawberry.Info, id: strawberry.ID) -> PaymentType:
+        ctx = _ctx(info)
+        return m.to_payment(ctx.session, PaymentService(ctx).restore(ctx, str(id)))
+
+    @strawberry.mutation(
+        description="Permanently delete a payment already in the Trash. Cannot be undone. Admin only."
+    )
+    @commits
+    def permanently_delete_payment(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> MessagePayload:
+        ctx = _ctx(info)
+        number = PaymentService(ctx).permanent_delete(str(id))
+        return MessagePayload(success=True, message=f"Payment {number} permanently deleted.")
 
     # =====================================================================
     # Reminders
