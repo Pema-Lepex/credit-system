@@ -24,12 +24,26 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, NewType
 
 import strawberry
 
 from app.core.security import Role
 from app.models import enums
+
+# GraphQL's built-in ``Int`` is a 32-bit signed integer — its max is ~2.15e9, about
+# 2 GB. Byte counts blow straight past that: a business's storage allowance, and
+# especially ``databaseBytes`` (the size of the WHOLE Postgres database across every
+# tenant), are routinely tens of gigabytes. Serializing such a value through ``Int``
+# does not truncate — graphql-core raises, and the ENTIRE query fails as the opaque
+# "Internal server error". ``BigInt`` is a custom scalar with no 32-bit cap: it emits
+# the integer straight into JSON, which JavaScript reads losslessly up to 2**53
+# (~9 PB) — far beyond any real byte count here. Use it for every byte field.
+BigInt = strawberry.scalar(
+    NewType("BigInt", int),
+    serialize=lambda value: int(value),
+    parse_value=lambda value: int(value),
+)
 
 # ---------------------------------------------------------------------------
 # Enums -- registered with Strawberry so they appear in the schema (and so the
@@ -95,9 +109,9 @@ class FileAssetType:
     url: str
     thumbnail_url: str | None
     content_type: str
-    size_bytes: int
-    original_size_bytes: int
-    bytes_saved: int
+    size_bytes: BigInt
+    original_size_bytes: BigInt
+    bytes_saved: BigInt
     width: int | None
     height: int | None
     created_at: datetime
@@ -654,19 +668,19 @@ class SearchResults:
 @strawberry.type
 class StorageBreakdown:
     label: str
-    bytes: int
+    bytes: BigInt  # 64-bit: a single kind's total can exceed 2 GB
     count: int
 
 
 @strawberry.type
 class StorageUsage:
-    database_bytes: int
-    uploads_bytes: int
-    total_bytes: int
-    quota_bytes: int
+    database_bytes: BigInt  # 64-bit: whole-database size, tens of GB at scale
+    uploads_bytes: BigInt
+    total_bytes: BigInt
+    quota_bytes: BigInt  # the 5 GB default alone overflows a 32-bit Int
     percent_used: float
     over_quota: bool
-    bytes_saved_by_compression: int
+    bytes_saved_by_compression: BigInt
 
     breakdown: list[StorageBreakdown]
 
@@ -684,7 +698,7 @@ class MaintenanceResult:
     operation: str
     success: bool
     message: str
-    bytes_freed: int
+    bytes_freed: BigInt  # 64-bit: a cleanup can free more than 2 GB
     rows_affected: int
 
 
@@ -695,7 +709,7 @@ class ArchiveBatchType:
     credit_count: int
     payment_count: int
     record_count: int
-    storage_bytes: int
+    storage_bytes: BigInt  # 64-bit: an archived batch can exceed 2 GB
     retention_policy: str
     delete_scheduled_for: datetime
     days_until_deletion: int
@@ -727,7 +741,7 @@ class ExportJobType:
     state: ExportState  # type: ignore[valid-type]
     datasets: list[str]
     row_count: int
-    size_bytes: int
+    size_bytes: BigInt
     download_url: str | None
     expires_at: datetime | None
     error: str | None

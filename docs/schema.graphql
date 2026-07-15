@@ -62,7 +62,7 @@ type ArchiveBatchType {
   creditCount: Int!
   paymentCount: Int!
   recordCount: Int!
-  storageBytes: Int!
+  storageBytes: BigInt!
   retentionPolicy: String!
   deleteScheduledFor: DateTime!
   daysUntilDeletion: Int!
@@ -118,6 +118,8 @@ type AuthPayload {
   refreshToken: String!
   user: UserType!
 }
+
+scalar BigInt
 
 type BusinessPage {
   items: [BusinessType!]!
@@ -505,7 +507,7 @@ type ExportJobType {
   state: ExportState!
   datasets: [String!]!
   rowCount: Int!
-  sizeBytes: Int!
+  sizeBytes: BigInt!
   downloadUrl: String
   expiresAt: DateTime
   error: String
@@ -540,7 +542,7 @@ type MaintenanceResult {
   operation: String!
   success: Boolean!
   message: String!
-  bytesFreed: Int!
+  bytesFreed: BigInt!
   rowsAffected: Int!
 }
 
@@ -1129,18 +1131,18 @@ input SortInput {
 
 type StorageBreakdown {
   label: String!
-  bytes: Int!
+  bytes: BigInt!
   count: Int!
 }
 
 type StorageUsage {
-  databaseBytes: Int!
-  uploadsBytes: Int!
-  totalBytes: Int!
-  quotaBytes: Int!
+  databaseBytes: BigInt!
+  uploadsBytes: BigInt!
+  totalBytes: BigInt!
+  quotaBytes: BigInt!
   percentUsed: Float!
   overQuota: Boolean!
-  bytesSavedByCompression: Int!
+  bytesSavedByCompression: BigInt!
   breakdown: [StorageBreakdown!]!
   customerCount: Int!
   creditCount: Int!
