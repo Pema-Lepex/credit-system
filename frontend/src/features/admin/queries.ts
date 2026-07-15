@@ -116,3 +116,21 @@ export const DELETE_BUSINESS_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+export const PLATFORM_SETTINGS_QUERY = /* GraphQL */ `
+  query PlatformSettings {
+    platformSettings {
+      hasW3formsAccessKey
+      w3formsAccessKeyHint
+    }
+  }
+`;
+
+export const UPDATE_PLATFORM_SETTINGS_MUTATION = /* GraphQL */ `
+  mutation UpdatePlatformSettings($input: PlatformSettingsInput!) {
+    updatePlatformSettings(input: $input) {
+      hasW3formsAccessKey
+      w3formsAccessKeyHint
+    }
+  }
+`;

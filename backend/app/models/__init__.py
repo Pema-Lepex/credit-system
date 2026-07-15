@@ -38,6 +38,7 @@ from app.models.enums import (
     RetentionPolicy,
 )
 from app.models.file import FileAsset
+from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.types import MoneyType, quantize_money
 from app.models.user import PasswordResetToken, RefreshToken, User
@@ -65,6 +66,7 @@ __all__ = [
     "Notification",
     "PasswordResetToken",
     "Payment",
+    "PlatformSetting",
     "Product",
     "RefreshToken",
     "ScheduledReminder",

@@ -47,6 +47,7 @@ from app.graphql.inputs import (
     ExportInput,
     LoginInput,
     PaymentInput,
+    PlatformSettingsInput,
     ProductInput,
     ProfileUpdateInput,
     RegisterInput,
@@ -72,6 +73,7 @@ from app.graphql.types import (
     MessagePayload,
     NotificationType,
     PaymentType,
+    PlatformSettingsType,
     ProductType,
     ScheduledReminderType,
     ServiceType,
@@ -89,6 +91,7 @@ from app.services.customer import CustomerService
 from app.services.export import ExportService
 from app.services.notification import NotificationService
 from app.services.payment import PaymentService
+from app.services.platform import PlatformService, resolve_registration_notice_key
 from app.services.reminder import ReminderService
 from app.services.retention import RetentionService
 from app.services.storage_stats import StorageStatsService
@@ -245,9 +248,11 @@ class Mutation:
             user_agent=ctx.user_agent,
         )
 
-        # Tell the super-admin a new store owner is waiting. Best-effort: a mail
-        # failure must never fail the registration, so it swallows its own errors.
+        # Tell the super-admin a new store owner is waiting. The W3Forms key comes from
+        # the platform settings (dashboard-configured) first, then the environment.
+        # Best-effort: a mail failure must never fail the registration.
         await notify_super_admin_new_registration(
+            access_key=resolve_registration_notice_key(ctx.session),
             business_name=business.name,
             owner_name=owner.full_name,
             email=owner.email,
@@ -500,6 +505,18 @@ class Mutation:
         return MessagePayload(
             success=True, message=f"'{name}' and all of its data were permanently deleted."
         )
+
+    @strawberry.mutation(
+        description="Update platform settings (the W3Forms notification key). SUPER_ADMIN only. "
+        "Send \"\" to clear the key; omit the field to leave it unchanged."
+    )
+    @commits
+    def update_platform_settings(
+        self, info: strawberry.Info, input: PlatformSettingsInput
+    ) -> PlatformSettingsType:
+        ctx = _ctx(info)
+        setting = PlatformService(ctx).update(w3forms_access_key=input.w3forms_access_key)
+        return m.to_platform_settings(setting)
 
     # =====================================================================
     # Customers

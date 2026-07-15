@@ -27,16 +27,19 @@ log = logging.getLogger("app.email.platform")
 
 async def notify_super_admin_new_registration(
     *,
+    access_key: str | None,
     business_name: str,
     owner_name: str,
     email: str,
     phone: str | None,
     registered_at: datetime,
 ) -> None:
-    """Email the super-admin that a new store owner has registered. Never raises."""
-    # The platform key first; fall back to the shared env key so a single-tenant
-    # install with only W3FORMS_ACCESS_KEY set still gets the notice.
-    key = settings.SUPER_ADMIN_W3FORMS_ACCESS_KEY or settings.W3FORMS_ACCESS_KEY
+    """Email the super-admin that a new store owner has registered. Never raises.
+
+    ``access_key`` is resolved by the caller (dashboard-configured key, then env) so
+    this module stays a dumb sender with no knowledge of where the key lives.
+    """
+    key = access_key
     if not key:
         log.info("No super-admin W3Forms key set; skipping new-registration notice.")
         return

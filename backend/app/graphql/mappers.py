@@ -31,6 +31,7 @@ from app.models.credit import Credit, CreditItem, Payment
 from app.models.customer import Customer
 from app.models.enums import ApprovalStatus, ArchiveState, ExportState
 from app.models.file import FileAsset
+from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.user import User
 from app.graphql.types import (
@@ -38,6 +39,7 @@ from app.graphql.types import (
     ArchiveBatchType,
     AuditLogType,
     BusinessType,
+    PlatformSettingsType,
     CategoryType,
     CreditItemType,
     CreditType,
@@ -136,6 +138,15 @@ def to_user(session: Session, user: User) -> UserType:
         permissions=sorted(p.value for p in permissions_for(user.role)),
         approval_status=approval_status,
         approval_reason=approval_reason,
+    )
+
+
+def to_platform_settings(setting: PlatformSetting) -> PlatformSettingsType:
+    """Platform settings for the super-admin. The W3Forms key never leaves as
+    plaintext -- only whether it exists and a masked tail, like the business key."""
+    return PlatformSettingsType(
+        has_w3forms_access_key=bool(setting.w3forms_access_key),
+        w3forms_access_key_hint=_mask_secret(setting.w3forms_access_key),
     )
 
 

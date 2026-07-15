@@ -312,6 +312,15 @@ def seed(reset: bool = False) -> None:
         print(f"  Pass   {settings.FIRST_SUPERADMIN_PASSWORD}")
         print()
 
+    # The platform super-admin is created from the environment, not from this demo
+    # data -- but seeding (especially after --reset, which drops the whole DB) is
+    # exactly when someone expects it to exist, so create/repair it here too. It runs
+    # in its own session, after the demo data is committed. Idempotent, and a no-op if
+    # SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD are unset.
+    from app.db.bootstrap import ensure_super_admin
+
+    ensure_super_admin()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed demo data")

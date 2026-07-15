@@ -49,6 +49,7 @@ from app.graphql.types import (
     AdminBusinessType,
     AdminStats,
     ApprovalStatus,
+    PlatformSettingsType,
     ArchiveBatchPage,
     AuditAction,
     AuditLogPage,
@@ -111,6 +112,7 @@ from app.services.customer import CustomerService
 from app.services.export import ExportService
 from app.services.notification import NotificationService
 from app.services.payment import PaymentFilter, PaymentService
+from app.services.platform import PlatformService
 from app.services.reminder import ReminderService
 from app.services.reports import ReportService
 from app.services.retention import RetentionService
@@ -246,6 +248,11 @@ class Query:
         owner = svc.owners_for([business.id]).get(business.id)
         counts = svc.counts_for(business.id)
         return m.to_admin_business(ctx.session, business, owner=owner, counts=counts)
+
+    @strawberry.field(description="Platform settings (e.g. the W3Forms key). SUPER_ADMIN only.")
+    def platform_settings(self, info: strawberry.Info) -> PlatformSettingsType:
+        ctx = _ctx(info)
+        return m.to_platform_settings(PlatformService(ctx).get())
 
     # =====================================================================
     # Customers

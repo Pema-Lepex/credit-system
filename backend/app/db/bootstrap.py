@@ -83,3 +83,35 @@ def ensure_super_admin() -> None:
             session.add(user)
             session.commit()
             log.info("Reconciled super-admin %s", addr)
+
+
+if __name__ == "__main__":
+    # Run directly to create/repair the super-admin without starting the whole app:
+    #   python -m app.db.bootstrap
+    # Prints exactly what it did against the database your .env points at.
+    from sqlmodel import Session, select
+
+    from app.db.session import engine, init_db
+    from app.models.user import User
+
+    print(f"Database   : {settings.DATABASE_URL}")
+    print(f"Super email: {settings.SUPER_ADMIN_EMAIL or '(unset)'}")
+    if not (settings.SUPER_ADMIN_EMAIL and settings.SUPER_ADMIN_PASSWORD):
+        print(
+            "\nSUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD are not set in backend/.env.\n"
+            "Add them and run this again."
+        )
+        raise SystemExit(1)
+
+    init_db()  # make sure the tables (and the approval columns) exist
+    ensure_super_admin()
+
+    with Session(engine) as s:
+        rows = s.exec(select(User).where(User.role == "SUPER_ADMIN")).all()
+        if rows:
+            print("\nSUPER_ADMIN accounts now in the database:")
+            for u in rows:
+                print(f"  - {u.email}  (active={u.is_active})")
+            print("\nSign in at /login with these credentials; you land on /admin.")
+        else:
+            print("\nNo super-admin was created — check the logs above.")

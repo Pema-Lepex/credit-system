@@ -183,6 +183,13 @@ class ProfileUpdateInput:
     language: str | None = None
 
 
+@strawberry.input
+class PlatformSettingsInput:
+    # None = leave unchanged; "" = clear; a value = set. Same three-state convention
+    # the business W3Forms key uses (see mutations._set / BusinessService.update).
+    w3forms_access_key: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Customers
 # ---------------------------------------------------------------------------

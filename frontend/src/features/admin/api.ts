@@ -18,7 +18,7 @@ import {
 } from "@tanstack/react-query";
 
 import { gqlRequest } from "@/lib/graphql/client";
-import type { AdminBusiness, AdminStats, ApprovalStatus, ID } from "@/types";
+import type { AdminBusiness, AdminStats, ApprovalStatus, ID, PlatformSettings } from "@/types";
 import {
   ACTIVATE_BUSINESS_MUTATION,
   ADMIN_BUSINESS_QUERY,
@@ -26,8 +26,10 @@ import {
   ADMIN_STATS_QUERY,
   APPROVE_BUSINESS_MUTATION,
   DELETE_BUSINESS_MUTATION,
+  PLATFORM_SETTINGS_QUERY,
   REJECT_BUSINESS_MUTATION,
   SUSPEND_BUSINESS_MUTATION,
+  UPDATE_PLATFORM_SETTINGS_MUTATION,
 } from "@/features/admin/queries";
 
 export interface PageInfo {
@@ -57,6 +59,7 @@ export const adminKeys = {
   lists: ["admin", "businesses"] as const,
   list: (filter: AdminBusinessesFilter) => ["admin", "businesses", "list", filter] as const,
   detail: (id: ID) => ["admin", "businesses", "detail", id] as const,
+  platformSettings: ["admin", "platform-settings"] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -181,5 +184,35 @@ export function useDeleteBusiness() {
       return data.deleteBusiness;
     },
     onSuccess: () => void invalidate(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Platform settings (the W3Forms notification key)
+// ---------------------------------------------------------------------------
+export function usePlatformSettings(): UseQueryResult<PlatformSettings> {
+  return useQuery({
+    queryKey: adminKeys.platformSettings,
+    queryFn: async () => {
+      const data = await gqlRequest<{ platformSettings: PlatformSettings }>(
+        PLATFORM_SETTINGS_QUERY,
+      );
+      return data.platformSettings;
+    },
+  });
+}
+
+export function useUpdatePlatformSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { w3formsAccessKey?: string | null }) => {
+      const data = await gqlRequest<
+        { updatePlatformSettings: PlatformSettings },
+        { input: { w3formsAccessKey?: string | null } }
+      >(UPDATE_PLATFORM_SETTINGS_MUTATION, { input });
+      return data.updatePlatformSettings;
+    },
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: adminKeys.platformSettings }),
   });
 }

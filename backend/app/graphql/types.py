@@ -258,6 +258,15 @@ class AdminStats:
 
 
 @strawberry.type
+class PlatformSettingsType:
+    """The super-admin's own settings. The W3Forms key is write-only: only whether
+    it is set and a masked tail are ever returned (same rule as the business key)."""
+
+    has_w3forms_access_key: bool
+    w3forms_access_key_hint: str | None
+
+
+@strawberry.type
 class CustomerType:
     id: strawberry.ID
     code: str

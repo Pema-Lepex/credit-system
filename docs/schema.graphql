@@ -606,6 +606,11 @@ type Mutation {
 
   """PERMANENTLY delete a store owner and ALL their data. Cannot be undone."""
   deleteBusiness(id: ID!): MessagePayload!
+
+  """
+  Update platform settings (the W3Forms notification key). SUPER_ADMIN only. Send "" to clear the key; omit the field to leave it unchanged.
+  """
+  updatePlatformSettings(input: PlatformSettingsInput!): PlatformSettingsType!
   createCustomer(input: CustomerInput!): CustomerType!
   updateCustomer(id: ID!, input: CustomerInput!): CustomerType!
 
@@ -804,6 +809,15 @@ type PaymentType {
   createdAt: DateTime!
 }
 
+input PlatformSettingsInput {
+  w3formsAccessKey: String = null
+}
+
+type PlatformSettingsType {
+  hasW3formsAccessKey: Boolean!
+  w3formsAccessKeyHint: String
+}
+
 input ProductFilterInput {
   search: String = null
   categoryId: ID = null
@@ -881,6 +895,9 @@ type Query {
 
   """One store owner, with its owner and counts. SUPER_ADMIN only."""
   adminBusiness(id: ID!): AdminBusinessType!
+
+  """Platform settings (e.g. the W3Forms key). SUPER_ADMIN only."""
+  platformSettings: PlatformSettingsType!
   customer(id: ID!): CustomerType!
   customers(filter: CustomerFilterInput = null, page: PageInput = null, sort: SortInput = null): CustomerPage!
 

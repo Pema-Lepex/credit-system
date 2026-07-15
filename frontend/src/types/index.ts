@@ -611,3 +611,10 @@ export interface AdminStats {
   rejected: number;
   suspended: number;
 }
+
+/** Platform (super-admin) settings. The W3Forms key is write-only — the API only
+ *  ever returns whether it is set and a masked tail. */
+export interface PlatformSettings {
+  hasW3formsAccessKey: boolean;
+  w3formsAccessKeyHint?: string | null;
+}

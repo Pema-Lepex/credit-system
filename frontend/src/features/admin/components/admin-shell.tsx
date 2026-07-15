@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Settings,
   ShieldBan,
   ShieldX,
   Store,
@@ -52,6 +53,7 @@ const NAV: AdminNavItem[] = [
   { label: "Approved", href: "/admin/users?status=APPROVED", icon: CheckCircle2, status: "APPROVED" },
   { label: "Rejected", href: "/admin/users?status=REJECTED", icon: ShieldX, status: "REJECTED" },
   { label: "Suspended", href: "/admin/users?status=SUSPENDED", icon: ShieldBan, status: "SUSPENDED" },
+  { label: "Settings", href: "/admin/settings", icon: Settings, exact: true },
 ];
 
 function useIsActive() {
