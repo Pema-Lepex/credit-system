@@ -14,6 +14,7 @@ GraphQL mutation. The two protocols each do what they are actually good at.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
@@ -34,6 +35,7 @@ from app.storage.base import StorageError
 from app.storage.service import StorageService
 
 router = APIRouter(tags=["files"])
+logger = logging.getLogger("app.api.files")
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +267,16 @@ async def download_export(export_id: str, ctx: CtxDep) -> Response:
         data = await storage.read(asset)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=410, detail="This export has expired") from exc
+    except StorageError as exc:
+        # The object store (Cloudinary/S3) refused or could not be reached -- e.g. a
+        # transient CDN error, or the Cloudinary account has PDF/ZIP delivery disabled.
+        # Surface a clean, retryable message instead of a raw 500; the real cause is in
+        # the logs (the StorageError carries the provider's HTTP status).
+        logger.warning("Export %s: storage read failed: %r", export_id, exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn't retrieve this file from storage. Please try again in a moment.",
+        ) from exc
 
     return StreamingResponse(
         BytesIO(data),
