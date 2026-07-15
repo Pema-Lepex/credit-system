@@ -51,6 +51,7 @@ from typing import Any
 
 import cloudinary
 import cloudinary.api
+import cloudinary.exceptions
 import cloudinary.uploader
 import cloudinary.utils
 
@@ -152,25 +153,50 @@ class CloudinaryStorage:
     async def read(self, key: str) -> bytes:
         """Fetch the bytes back.
 
-        Cloudinary is a CDN, not a filesystem: there is no "read object" API. We fetch
-        the delivery URL over HTTP. This is only used for server-side work (streaming a
+        Cloudinary is a CDN, not a filesystem: there is no "read object" API, so we
+        fetch a delivery URL over HTTP. Used for server-side work only (streaming a
         stored export, re-reading a logo to embed in a PDF); the browser never comes
-        through here, it goes straight to the CDN via url_for().
+        through here.
+
+        We do NOT reconstruct the URL with ``url_for`` here. For a ``raw`` file (every
+        CSV/XLSX/PDF/ZIP export) Cloudinary stores the asset under the extension-free
+        ``public_id`` we uploaded, and a reconstructed URL that re-appends the original
+        extension points at a path that does not exist -> 404 -> a bogus "expired". So
+        we ask the Admin API for the asset it ACTUALLY stored under that public_id
+        (the same lookup ``size()`` does) and fetch its own ``secure_url``, whatever
+        extension Cloudinary did or did not give it.
         """
         import httpx
 
-        url = self.url_for(key)
+        def _resource() -> dict[str, Any]:
+            return cloudinary.api.resource(
+                self._public_id(key), resource_type=self._resource_type(key)
+            )
+
+        try:
+            info = await asyncio.to_thread(_resource)
+        except cloudinary.exceptions.NotFound as exc:
+            # The contract the whole app is written against (StorageService.read and the
+            # export-download route turn this into a clean 410).
+            raise FileNotFoundError(key) from exc
+        except Exception as exc:  # the SDK raises a zoo of types
+            raise StorageError(f"Cloudinary lookup failed for {key!r}: {exc!r}") from exc
+
+        url = info.get("secure_url") or info.get("url")
+        if not url:
+            raise FileNotFoundError(key)
+
         try:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(url)
+                response = await client.get(str(url))
         except httpx.HTTPError as exc:
             raise StorageError(f"Cloudinary fetch failed for {key!r}: {exc!r}") from exc
 
         if response.status_code == 404:
-            # The contract the whole app is written against (see StorageService.read
-            # and the export-download route, which turn this into a clean 410).
             raise FileNotFoundError(key)
         if response.status_code >= 400:
+            # e.g. 401/403 when the account has PDF/ZIP delivery disabled. The export
+            # route maps StorageError to a clean, retryable 502.
             raise StorageError(
                 f"Cloudinary returned HTTP {response.status_code} for {key!r}"
             )
