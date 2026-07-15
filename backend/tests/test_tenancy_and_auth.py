@@ -25,6 +25,7 @@ from app.core.errors import (
 from app.core.security import Role, hash_password
 from app.models.business import Business
 from app.models.customer import Customer
+from app.models.enums import ApprovalStatus
 from app.models.user import User
 from app.services.auth import AuthService
 from app.services.base import ServiceContext
@@ -40,7 +41,12 @@ TOMORROW = date.today() + timedelta(days=30)
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def rival(session: Session) -> tuple[Business, User, Customer, ServiceContext]:
-    biz = Business(name="Rival Shop", slug="rival-shop", email="rival@example.com")
+    biz = Business(
+        name="Rival Shop",
+        slug="rival-shop",
+        email="rival@example.com",
+        approval_status=ApprovalStatus.APPROVED,  # an operating tenant, like the primary one
+    )
     session.add(biz)
     session.flush()
 

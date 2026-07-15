@@ -31,6 +31,7 @@ import strawberry
 
 from app.core.errors import ValidationError
 from app.core.security import Permission
+from app.email.platform import notify_super_admin_new_registration
 from app.email.service import EmailService
 from app.graphql import mappers as m
 from app.graphql.context import GraphQLContext
@@ -57,6 +58,7 @@ from app.graphql.inputs import (
     to_decimal,
 )
 from app.graphql.types import (
+    AdminBusinessType,
     ArchiveBatchType,
     AuthPayload,
     BusinessType,
@@ -76,7 +78,7 @@ from app.graphql.types import (
     UserType,
 )
 from app.models.business import Business
-from app.models.enums import ExportFormat, ItemKind, PaymentMethod
+from app.models.enums import ApprovalStatus, ExportFormat, ItemKind, PaymentMethod
 from app.services.auth import AuthService
 from app.services.base import BaseService, ServiceContext
 from app.services.business import BusinessService
@@ -223,10 +225,10 @@ class Mutation:
 
     @strawberry.mutation(description="Create a business and its first ADMIN, and sign them in.")
     @commits
-    def register(self, info: strawberry.Info, input: RegisterInput) -> AuthPayload:
+    async def register(self, info: strawberry.Info, input: RegisterInput) -> AuthPayload:
         ctx = _ctx(info)
         auth = AuthService(ctx)
-        auth.register_business(
+        business, owner = auth.register_business(
             business_name=input.business_name,
             full_name=input.full_name,
             email=input.email,
@@ -234,12 +236,23 @@ class Mutation:
         )
         # Sign them straight in. register_business does not mint tokens (the scheduler
         # and tests create tenants too, and neither wants a session); issuing them here
-        # means the client is not forced into an immediate second round trip.
+        # means the client is not forced into an immediate second round trip. The new
+        # tenant is PENDING, so this token unlocks only the "awaiting approval" screen.
         user, access, refresh = auth.login(
             email=input.email,
             password=input.password,
             ip_address=ctx.ip_address,
             user_agent=ctx.user_agent,
+        )
+
+        # Tell the super-admin a new store owner is waiting. Best-effort: a mail
+        # failure must never fail the registration, so it swallows its own errors.
+        await notify_super_admin_new_registration(
+            business_name=business.name,
+            owner_name=owner.full_name,
+            email=owner.email,
+            phone=owner.phone,
+            registered_at=owner.created_at,
         )
         return _auth_payload(ctx, user, access, refresh)
 
@@ -424,6 +437,69 @@ class Mutation:
     def delete_user(self, info: strawberry.Info, id: strawberry.ID) -> UserType:
         ctx = _ctx(info)
         return m.to_user(ctx.session, UserService(ctx).soft_delete(str(id)))
+
+    # =====================================================================
+    # Super Admin panel -- store-owner approvals. SUPER_ADMIN only; the service
+    # guards every call (BUSINESS_CREATE/DELETE + explicit is_super_admin check).
+    # =====================================================================
+    @strawberry.mutation(description="Approve a pending store owner. Full access follows at once.")
+    @commits
+    def approve_business(self, info: strawberry.Info, id: strawberry.ID) -> AdminBusinessType:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        business = svc.set_approval(str(id), ApprovalStatus.APPROVED)
+        return m.to_admin_business(
+            ctx.session, business, owner=svc.owners_for([business.id]).get(business.id)
+        )
+
+    @strawberry.mutation(
+        description="Reject a store owner. They keep sign-in but see only the reason; nothing works."
+    )
+    @commits
+    def reject_business(
+        self, info: strawberry.Info, id: strawberry.ID, reason: str
+    ) -> AdminBusinessType:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        business = svc.set_approval(str(id), ApprovalStatus.REJECTED, reason=reason)
+        return m.to_admin_business(
+            ctx.session, business, owner=svc.owners_for([business.id]).get(business.id)
+        )
+
+    @strawberry.mutation(description="Suspend an approved store owner. Access is revoked immediately.")
+    @commits
+    def suspend_business(
+        self, info: strawberry.Info, id: strawberry.ID, reason: str
+    ) -> AdminBusinessType:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        business = svc.set_approval(str(id), ApprovalStatus.SUSPENDED, reason=reason)
+        return m.to_admin_business(
+            ctx.session, business, owner=svc.owners_for([business.id]).get(business.id)
+        )
+
+    @strawberry.mutation(
+        description="Re-activate a suspended or rejected store owner (sets the status to APPROVED)."
+    )
+    @commits
+    def activate_business(self, info: strawberry.Info, id: strawberry.ID) -> AdminBusinessType:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        business = svc.set_approval(str(id), ApprovalStatus.APPROVED)
+        return m.to_admin_business(
+            ctx.session, business, owner=svc.owners_for([business.id]).get(business.id)
+        )
+
+    @strawberry.mutation(
+        description="PERMANENTLY delete a store owner and ALL their data. Cannot be undone."
+    )
+    @commits
+    def delete_business(self, info: strawberry.Info, id: strawberry.ID) -> MessagePayload:
+        ctx = _ctx(info)
+        name = BusinessService(ctx).hard_delete(str(id))
+        return MessagePayload(
+            success=True, message=f"'{name}' and all of its data were permanently deleted."
+        )
 
     # =====================================================================
     # Customers

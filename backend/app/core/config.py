@@ -213,6 +213,22 @@ class Settings(BaseSettings):
     FIRST_SUPERADMIN_EMAIL: str = "admin@creditsystem.local"
     FIRST_SUPERADMIN_PASSWORD: str = "ChangeMe123!"
 
+    # --- Super Admin (the platform operator) --------------------------------
+    # The ONE platform administrator. Credentials are read from the environment and
+    # are NEVER hardcoded in the frontend (the spec is explicit about this). On boot,
+    # app.db.bootstrap.ensure_super_admin() reconciles a single SUPER_ADMIN user row
+    # with these values -- creating it if missing, updating the password if it was
+    # rotated -- so signing in as the super-admin goes through the ordinary JWT login
+    # flow, not a special-cased credential check. Leave unset to run with no operator.
+    SUPER_ADMIN_EMAIL: str | None = None
+    SUPER_ADMIN_PASSWORD: str | None = None
+
+    # W3Forms access key whose registered inbox is the super-admin's own. Used ONLY to
+    # notify the operator when a new store owner registers. It is deliberately separate
+    # from the per-business W3FORMS_ACCESS_KEY: with W3Forms the key IS the destination
+    # inbox, and this destination is the platform operator, not any single tenant.
+    SUPER_ADMIN_W3FORMS_ACCESS_KEY: str | None = None
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def _normalise_database_url(cls, v: object) -> object:

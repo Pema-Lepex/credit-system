@@ -30,6 +30,8 @@ const USER_FIELDS = /* GraphQL */ `
     avatarUrl
     lastLoginAt
     createdAt
+    approvalStatus
+    approvalReason
   }
 `;
 

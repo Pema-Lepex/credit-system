@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 import type {
+  ApprovalStatus,
   CreditStatus,
   CustomerStatus,
   ExportState,
@@ -205,6 +206,29 @@ export const NOTIFICATION_KIND_STYLES: Record<NotificationKind, StatusStyle> = {
   },
   SYSTEM: {
     label: "System",
+    className: "bg-neutral-soft text-neutral-soft-foreground",
+    dot: "bg-neutral-soft-foreground",
+  },
+};
+
+export const APPROVAL_STATUS_STYLES: Record<ApprovalStatus, StatusStyle> = {
+  PENDING: {
+    label: "Pending",
+    className: "bg-warning-soft text-warning-soft-foreground",
+    dot: "bg-warning-soft-foreground",
+  },
+  APPROVED: {
+    label: "Approved",
+    className: "bg-success-soft text-success-soft-foreground",
+    dot: "bg-success-soft-foreground",
+  },
+  REJECTED: {
+    label: "Rejected",
+    className: "bg-destructive-soft text-destructive-soft-foreground",
+    dot: "bg-destructive-soft-foreground",
+  },
+  SUSPENDED: {
+    label: "Suspended",
     className: "bg-neutral-soft text-neutral-soft-foreground",
     dot: "bg-neutral-soft-foreground",
   },

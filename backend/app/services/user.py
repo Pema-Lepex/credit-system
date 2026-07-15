@@ -198,6 +198,10 @@ class UserService(BaseService):
     def update_profile(self, **fields: Any) -> User:
         """Self-service edit. Cannot touch role or is_active -- only USER_MANAGE can."""
         user = self.user
+        # This path does not go through require(), so the approval gate is applied
+        # explicitly: a PENDING/REJECTED/SUSPENDED owner cannot edit even their own
+        # profile until the business is approved.
+        self._assert_tenant_usable()
         allowed = {"full_name", "phone", "avatar_file_id", "theme", "language"}
         payload = {k: v for k, v in fields.items() if k in allowed}
         if not payload:

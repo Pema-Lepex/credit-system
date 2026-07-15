@@ -24,6 +24,7 @@ from app.api.cron import router as cron_router
 from app.api.files import router as files_router
 from app.core.config import Environment, settings
 from app.core.errors import AppError
+from app.db.bootstrap import ensure_super_admin
 from app.db.session import check_database, init_db
 from app.graphql.context import get_graphql_context
 from app.graphql.schema import schema
@@ -43,6 +44,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     init_db()
     log.info("Database ready: %s", settings.DATABASE_URL.split("://")[0])
+
+    # Reconcile the single platform super-admin from the environment. See
+    # app/db/bootstrap.py -- credentials are never hardcoded, and the operator signs
+    # in through the ordinary JWT flow like any other user.
+    ensure_super_admin()
 
     # The scheduler lives in this process. See app/scheduler/__init__.py for the
     # single-instance caveat and the migration path to a real queue.

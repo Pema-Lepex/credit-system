@@ -32,7 +32,7 @@ from app.core.errors import (
     ValidationError,
 )
 from app.core.security import Permission, Role, has_permission
-from app.models.enums import AuditAction
+from app.models.enums import ApprovalStatus, AuditAction
 from app.models.retention import AuditLog
 from app.models.user import User
 
@@ -40,6 +40,23 @@ if TYPE_CHECKING:
     from app.models.business import Business
 
 T = TypeVar("T")
+
+# What a blocked tenant is told. Deliberately generic -- the specific reason a
+# rejection/suspension carries is shown by the frontend from the business record;
+# this is the API-level refusal, and it names the state so a client can branch on
+# the ``ACCOUNT_<STATUS>`` code without parsing prose.
+_APPROVAL_BLOCK_MESSAGES: dict[ApprovalStatus, str] = {
+    ApprovalStatus.PENDING: (
+        "Your account is awaiting approval. The administrator must verify it before "
+        "you can use the system."
+    ),
+    ApprovalStatus.REJECTED: (
+        "Your account has been rejected. Please contact the administrator."
+    ),
+    ApprovalStatus.SUSPENDED: (
+        "Your account has been suspended. Please contact the administrator."
+    ),
+}
 
 
 @dataclass(slots=True)
@@ -90,6 +107,10 @@ class BaseService:
         self.ctx = ctx
         self.session: Session = ctx.session
         self._business: Business | None = None
+        # Cache for the approval gate: (business_id, status). One fetch per service
+        # instance, not one per require()/scope_id call.
+        self._approval_cache_id: str | None = None
+        self._approval_cache_status: ApprovalStatus | None = None
 
     # -- identity ------------------------------------------------------------
     @property
@@ -117,11 +138,54 @@ class BaseService:
         user = self.user
         if not user.is_active:
             raise AuthenticationError("This account has been deactivated")
+        # THE APPROVAL GATE. A PENDING/REJECTED/SUSPENDED tenant is refused every
+        # protected operation, before the role check, so the message is about the
+        # account state rather than a missing permission.
+        self._assert_tenant_usable()
         if not has_permission(user.role, permission):
             raise PermissionDeniedError(
                 f"Your role ({Role(user.role).value}) is not allowed to {permission.value}"
             )
         return user
+
+    def _assert_tenant_usable(self) -> None:
+        """Refuse a non-APPROVED tenant. The single approval choke point.
+
+        Called from both ``require`` (every permissioned op) and ``scope_id`` (the
+        handful of tenant reads that resolve a scope without a require() -- global
+        search, the dashboard analytics). A store owner and their staff may sign in
+        while PENDING/REJECTED/SUSPENDED -- they have to, to read their own status --
+        but nothing tenant-scoped works until a super-admin approves the business.
+
+        Exempt: the scheduler (a system actor, no person, already tenant-pinned) and
+        the SUPER_ADMIN (belongs to no tenant and operates above all of them).
+        """
+        if self.ctx.is_system:
+            return
+        user = self.ctx.user
+        if user is None or Role(user.role) is Role.SUPER_ADMIN:
+            return
+        if not user.business_id:
+            return  # a non-superadmin with no business is scope_id's problem, not this one
+        status = self._tenant_approval_status(user.business_id)
+        if status is None or status is ApprovalStatus.APPROVED:
+            return
+        raise PermissionDeniedError(
+            _APPROVAL_BLOCK_MESSAGES.get(status, "Your account cannot access the system."),
+            code=f"ACCOUNT_{status.value}",
+        )
+
+    def _tenant_approval_status(self, business_id: str) -> ApprovalStatus | None:
+        """The caller's tenant approval status, fetched once and cached."""
+        from app.models.business import Business  # local: avoids a model<->service cycle
+
+        if self._approval_cache_id != business_id:
+            business = self.session.get(Business, business_id)
+            self._approval_cache_status = (
+                ApprovalStatus(business.approval_status) if business is not None else None
+            )
+            self._approval_cache_id = business_id
+        return self._approval_cache_status
 
     @property
     def scope_id(self) -> str:
@@ -162,6 +226,10 @@ class BaseService:
             raise PermissionDeniedError("This account is not attached to a business")
         if self.ctx.business_id and self.ctx.business_id != user.business_id:
             raise PermissionDeniedError("Cross-business access is not permitted")
+        # The approval gate again, for the tenant reads that resolve a scope without
+        # going through require() (global search, dashboard analytics). Cached, so
+        # this is free when require() already ran.
+        self._assert_tenant_usable()
         return user.business_id
 
     def get_scoped(self, model: type[T], entity_id: str, *, label: str | None = None) -> T:

@@ -35,6 +35,7 @@ from app.models import enums
 # Enums -- registered with Strawberry so they appear in the schema (and so the
 # frontend gets real union types, not `string`).
 # ---------------------------------------------------------------------------
+ApprovalStatus = strawberry.enum(enums.ApprovalStatus)
 CreditStatus = strawberry.enum(enums.CreditStatus)
 CustomerStatus = strawberry.enum(enums.CustomerStatus)
 PaymentMethod = strawberry.enum(enums.PaymentMethod)
@@ -120,6 +121,11 @@ class UserType:
     # NOT a security control -- the server re-checks every one of these on every
     # call. This is purely so the interface doesn't offer buttons that will 403.
     permissions: list[str]
+    # The approval state of the user's business, surfaced on the user so the frontend
+    # can gate the whole app off `me` without a second (blocked) business query. For a
+    # SUPER_ADMIN (no tenant) this is APPROVED. See BaseService's approval gate.
+    approval_status: str
+    approval_reason: str | None
 
 
 @strawberry.type
@@ -190,6 +196,65 @@ class UserPage:
 class BusinessPage:
     items: list[BusinessType]
     page_info: PageInfo
+
+
+# ---------------------------------------------------------------------------
+# Super Admin panel
+# ---------------------------------------------------------------------------
+@strawberry.type
+class AdminBusinessType:
+    """A store owner as the SUPER_ADMIN sees it: the business plus its owner.
+
+    Deliberately a separate, narrower type from BusinessType. The admin panel is a
+    different contract -- it never needs the tenant's reminder/branding/retention
+    settings, and it DOES need the owner's identity (name/email/phone/last login),
+    which BusinessType has no business exposing to a tenant looking at their own row.
+    The heavier counts are populated only on the detail view (null in the list).
+    """
+
+    id: strawberry.ID
+    name: str
+    slug: str
+    description: str | None
+    email: str | None
+    phone: str | None
+    address: str | None
+    city: str | None
+    country: str | None
+
+    approval_status: ApprovalStatus  # type: ignore[valid-type]
+    approval_reason: str | None
+    approved_at: datetime | None
+    is_active: bool
+    created_at: datetime
+
+    # The registrant / owner (earliest ADMIN of the business), if any.
+    owner_name: str | None
+    owner_email: str | None
+    owner_phone: str | None
+    owner_last_login_at: datetime | None
+
+    # Detail-only aggregates; null in list responses to keep the listing cheap.
+    user_count: int | None
+    customer_count: int | None
+    credit_count: int | None
+
+
+@strawberry.type
+class AdminBusinessPage:
+    items: list[AdminBusinessType]
+    page_info: PageInfo
+
+
+@strawberry.type
+class AdminStats:
+    """Dashboard cards for the super-admin: store owners by approval state."""
+
+    total_store_owners: int
+    pending: int
+    approved: int
+    rejected: int
+    suspended: int
 
 
 @strawberry.type

@@ -37,7 +37,7 @@ from app.core.security import (
 )
 from app.models.base import utcnow
 from app.models.business import Business
-from app.models.enums import AuditAction
+from app.models.enums import ApprovalStatus, AuditAction
 from app.models.user import PasswordResetToken, RefreshToken, User
 from app.services.base import BaseService
 from app.utils.dates import ensure_utc
@@ -349,7 +349,16 @@ class AuthService(BaseService):
         if self._find_by_email(addr) is not None:
             raise ConflictError("An account with that email already exists", field="email")
 
-        business = Business(name=name, slug=unique_slug(self.session, name), email=addr)
+        # A newly registered shop is PENDING until a super-admin approves it. This is
+        # the model default too; set explicitly so the intent is visible right here at
+        # the one place tenants are born. The owner can still sign in -- they just see
+        # the "awaiting approval" screen until then (see BaseService's approval gate).
+        business = Business(
+            name=name,
+            slug=unique_slug(self.session, name),
+            email=addr,
+            approval_status=ApprovalStatus.PENDING,
+        )
         self.session.add(business)
         self.session.flush()  # need business.id for the user row
 

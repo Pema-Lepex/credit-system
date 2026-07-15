@@ -45,6 +45,10 @@ from app.graphql.inputs import (
 )
 from app.graphql.types import (
     ActivityItem,
+    AdminBusinessPage,
+    AdminBusinessType,
+    AdminStats,
+    ApprovalStatus,
     ArchiveBatchPage,
     AuditAction,
     AuditLogPage,
@@ -196,6 +200,52 @@ class Query:
             items=[m.to_user(ctx.session, u) for u in result.items],
             page_info=page_info(result),
         )
+
+    # =====================================================================
+    # Super Admin panel (store-owner approvals). SUPER_ADMIN only -- the service
+    # guards every call with BUSINESS_CREATE + an explicit is_super_admin check.
+    # =====================================================================
+    @strawberry.field(description="Store-owner counts by approval state. SUPER_ADMIN only.")
+    def admin_stats(self, info: strawberry.Info) -> AdminStats:
+        ctx = _ctx(info)
+        s = BusinessService(ctx).admin_stats()
+        return AdminStats(
+            total_store_owners=s["total"],
+            pending=s["pending"],
+            approved=s["approved"],
+            rejected=s["rejected"],
+            suspended=s["suspended"],
+        )
+
+    @strawberry.field(description="Every store owner, optionally filtered by status. SUPER_ADMIN only.")
+    def admin_businesses(
+        self,
+        info: strawberry.Info,
+        page: PageInput | None = None,
+        status: ApprovalStatus | None = None,  # type: ignore[valid-type]
+        search: str | None = None,
+    ) -> AdminBusinessPage:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        result = svc.list_for_admin(_page(page), status=status, search=search)
+        # Batch the owners so a page of 25 businesses is two queries, not twenty-six.
+        owners = svc.owners_for([b.id for b in result.items])
+        return AdminBusinessPage(
+            items=[
+                m.to_admin_business(ctx.session, b, owner=owners.get(b.id))
+                for b in result.items
+            ],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field(description="One store owner, with its owner and counts. SUPER_ADMIN only.")
+    def admin_business(self, info: strawberry.Info, id: strawberry.ID) -> AdminBusinessType:
+        ctx = _ctx(info)
+        svc = BusinessService(ctx)
+        business = svc.get_for_admin(str(id))
+        owner = svc.owners_for([business.id]).get(business.id)
+        counts = svc.counts_for(business.id)
+        return m.to_admin_business(ctx.session, business, owner=owner, counts=counts)
 
     # =====================================================================
     # Customers

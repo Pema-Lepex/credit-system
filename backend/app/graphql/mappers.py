@@ -29,11 +29,12 @@ from app.models.catalog import Category, Product, Service
 from app.models.communication import EmailTemplate, Notification, ScheduledReminder
 from app.models.credit import Credit, CreditItem, Payment
 from app.models.customer import Customer
-from app.models.enums import ArchiveState, ExportState
+from app.models.enums import ApprovalStatus, ArchiveState, ExportState
 from app.models.file import FileAsset
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.user import User
 from app.graphql.types import (
+    AdminBusinessType,
     ArchiveBatchType,
     AuditLogType,
     BusinessType,
@@ -95,7 +96,29 @@ def _urls(session: Session, file_ids: list[str] | None) -> list[str]:
 # ---------------------------------------------------------------------------
 # Identity
 # ---------------------------------------------------------------------------
+def _user_approval(session: Session, user: User) -> tuple[str, str | None]:
+    """(approval_status, reason) for a user, derived from their business.
+
+    A SUPER_ADMIN has no tenant and is always APPROVED. The reason is surfaced only
+    when it is actionable (REJECTED/SUSPENDED) -- a PENDING business has no reason and
+    an APPROVED one's past reason is not the user's concern.
+    """
+    if not user.business_id:
+        return ApprovalStatus.APPROVED.value, None
+    business = session.get(Business, user.business_id)
+    if business is None:
+        return ApprovalStatus.APPROVED.value, None
+    status = ApprovalStatus(business.approval_status)
+    reason = (
+        business.approval_reason
+        if status in (ApprovalStatus.REJECTED, ApprovalStatus.SUSPENDED)
+        else None
+    )
+    return status.value, reason
+
+
 def to_user(session: Session, user: User) -> UserType:
+    approval_status, approval_reason = _user_approval(session, user)
     return UserType(
         id=strawberry.ID(user.id),
         email=user.email,
@@ -111,6 +134,46 @@ def to_user(session: Session, user: User) -> UserType:
         created_at=user.created_at,
         # UI affordance only -- the server re-checks every permission on every call.
         permissions=sorted(p.value for p in permissions_for(user.role)),
+        approval_status=approval_status,
+        approval_reason=approval_reason,
+    )
+
+
+def to_admin_business(
+    session: Session,
+    business: Business,
+    *,
+    owner: User | None = None,
+    counts: dict[str, int] | None = None,
+) -> AdminBusinessType:
+    """Map a business for the super-admin panel, with its owner and (optional) counts.
+
+    ``owner`` is the business's registrant (earliest ADMIN); callers batch-load it to
+    avoid an N+1 across a listing. ``counts`` (user/customer/credit) is populated only
+    on the detail view -- left None in the list, where the columns don't show it.
+    """
+    return AdminBusinessType(
+        id=strawberry.ID(business.id),
+        name=business.name,
+        slug=business.slug,
+        description=business.description,
+        email=business.email,
+        phone=business.phone,
+        address=business.address,
+        city=business.city,
+        country=business.country,
+        approval_status=ApprovalStatus(business.approval_status),
+        approval_reason=business.approval_reason,
+        approved_at=business.approved_at,
+        is_active=business.is_active,
+        created_at=business.created_at,
+        owner_name=owner.full_name if owner else None,
+        owner_email=owner.email if owner else None,
+        owner_phone=owner.phone if owner else None,
+        owner_last_login_at=owner.last_login_at if owner else None,
+        user_count=counts.get("users") if counts else None,
+        customer_count=counts.get("customers") if counts else None,
+        credit_count=counts.get("credits") if counts else None,
     )
 
 

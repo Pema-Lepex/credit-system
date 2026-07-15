@@ -52,8 +52,12 @@ export function LoginForm() {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     try {
-      await login(values.email, values.password);
-      router.replace(safeNext());
+      const user = await login(values.email, values.password);
+      // The one role-based fork: the platform operator lands on the admin panel,
+      // everyone else on the app (where the approval gate takes over if they are not
+      // yet approved). Credentials are the same JWT flow either way — there is no
+      // separate super-admin login path.
+      router.replace(user.role === "SUPER_ADMIN" ? "/admin" : safeNext());
     } catch (error) {
       setFormError(
         error instanceof GraphQLRequestError && !error.isNetworkError

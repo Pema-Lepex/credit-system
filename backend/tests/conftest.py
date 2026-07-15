@@ -17,6 +17,7 @@ import app.models  # noqa: F401  (registers every table)
 from app.core.security import Role, hash_password
 from app.models.business import Business
 from app.models.customer import Customer
+from app.models.enums import ApprovalStatus
 from app.models.user import User
 from app.services.base import ServiceContext
 
@@ -43,6 +44,11 @@ def business(session: Session) -> Business:
         currency_symbol="Nu.",
         timezone="Asia/Thimphu",
         tax_percentage=0,
+        # An operating shop: the approval gate (BaseService._assert_tenant_usable)
+        # blocks every tenant operation until APPROVED, and these fixtures exercise
+        # the approved-tenant behaviour. Registration is the only path that yields a
+        # PENDING business; that flow is covered separately.
+        approval_status=ApprovalStatus.APPROVED,
     )
     session.add(b)
     session.commit()

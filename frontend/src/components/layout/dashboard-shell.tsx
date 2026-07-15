@@ -2,8 +2,10 @@
 
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { AccountStatusScreen } from "@/features/account/account-status-screen";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { Logo } from "@/components/layout/logo";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
@@ -33,10 +35,19 @@ const COLLAPSE_KEY = "cms.sidebar_collapsed";
  *           monitor gets margins instead of a 3000px-wide table.
  */
 export function DashboardShell({ children }: { children: ReactNode }) {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, user } = useAuth();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const mobileNav = useDisclosure();
   const palette = useDisclosure();
+
+  // The platform operator has no business and belongs to /admin, not the tenant app
+  // (the dashboard queries here need a business the super-admin does not have). Bounce
+  // them the moment the session resolves.
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  useEffect(() => {
+    if (!isLoading && isSuperAdmin) router.replace("/admin");
+  }, [isLoading, isSuperAdmin, router]);
 
   // Read the persisted preference AFTER mount — reading localStorage during
   // render would desync SSR markup from the client and blow up hydration.
@@ -86,6 +97,25 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           <Button onClick={() => window.location.assign("/login")}>Sign in again</Button>
         </div>
       </div>
+    );
+  }
+
+  // Super-admin: the redirect effect above is in flight; show a spinner rather than
+  // flash the tenant chrome (and fire its business-scoped queries) for one frame.
+  if (isSuperAdmin) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <Spinner size="lg" label="Opening the admin panel" />
+      </div>
+    );
+  }
+
+  // THE APPROVAL GATE (front end of it). A store owner or staff whose business is not
+  // APPROVED gets the whole-page status screen instead of the app — no sidebar, no
+  // modules. The server refuses those calls anyway; this is the humane version.
+  if (user && user.approvalStatus && user.approvalStatus !== "APPROVED") {
+    return (
+      <AccountStatusScreen status={user.approvalStatus} reason={user.approvalReason} />
     );
   }
 

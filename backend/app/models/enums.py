@@ -36,6 +36,35 @@ class CreditStatus(str, Enum):
         return (cls.PAID, cls.CANCELLED)
 
 
+class ApprovalStatus(str, Enum):
+    """Platform-level approval state of a Business (tenant).
+
+    Lives on the Business, not the User, on purpose: a store owner and every staff
+    account they create share one tenant, and approval must gate the whole shop
+    together. Putting it on the User would leave staff ungated (they have their own
+    User row) unless every check re-resolved the owner's status -- more code for the
+    same result. See the super-admin panel and BaseService's tenant gate.
+
+        PENDING   -> just registered; can sign in ONLY to see this status.
+        APPROVED  -> full access to the application.
+        REJECTED  -> can sign in, sees the rejection reason, nothing else works.
+        SUSPENDED -> was approved, access revoked; sees the reason, nothing works.
+
+    Only APPROVED unlocks the business modules; the other three all resolve to HTTP
+    403 on every protected API.
+    """
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    SUSPENDED = "SUSPENDED"
+
+    @classmethod
+    def usable_statuses(cls) -> tuple[ApprovalStatus, ...]:
+        """Statuses under which a tenant may use the application. Just one."""
+        return (cls.APPROVED,)
+
+
 class CustomerStatus(str, Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"

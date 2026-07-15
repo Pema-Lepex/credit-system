@@ -16,14 +16,15 @@ therefore avoid the future import. Modules with no Relationship (customer, catal
 file, ...) keep it.
 """
 
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship
 
-from app.models.base import BaseEntity
-from app.models.enums import ReminderAudience, RetentionPolicy
+from app.models.base import BaseEntity, TZDateTime
+from app.models.enums import ApprovalStatus, ReminderAudience, RetentionPolicy
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -147,6 +148,27 @@ class Business(BaseEntity, table=True):
 
     # --- Platform -----------------------------------------------------------
     is_active: bool = Field(default=True, index=True)
+
+    # --- Super-admin approval ----------------------------------------------
+    # A new tenant is PENDING until a platform administrator approves it. This is
+    # the gate the whole application hangs off (BaseService._assert_tenant_usable):
+    # only APPROVED unlocks the business modules. It is deliberately separate from
+    # ``is_active`` -- is_active is the older per-tenant on/off switch, while this
+    # carries the four-state approval lifecycle the super-admin panel manages, plus
+    # the human-readable reason a rejection/suspension has to show the owner.
+    #
+    # NOTE: a REJECTED/SUSPENDED owner can still SIGN IN (User.is_active stays True)
+    # -- they must be able to read their own status. The block happens one layer up,
+    # at every protected service call, never at the login door.
+    approval_status: ApprovalStatus = Field(
+        default=ApprovalStatus.PENDING, max_length=16, index=True
+    )
+    approval_reason: str | None = Field(default=None, max_length=1000)
+    approved_at: datetime | None = Field(default=None, sa_type=TZDateTime)  # type: ignore[call-overload]
+    # Which super-admin actioned it. Not a FK: the super-admin belongs to no tenant,
+    # and this column is on a tenant table -- a cross-tenant FK would reintroduce the
+    # very cycle models/business.py already avoids for logo_file_id.
+    approved_by_user_id: str | None = Field(default=None, max_length=32)
 
     users: list["User"] = Relationship(
         back_populates="business",

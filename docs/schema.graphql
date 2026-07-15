@@ -7,6 +7,50 @@ type ActivityItem {
   at: DateTime!
 }
 
+type AdminBusinessPage {
+  items: [AdminBusinessType!]!
+  pageInfo: PageInfo!
+}
+
+type AdminBusinessType {
+  id: ID!
+  name: String!
+  slug: String!
+  description: String
+  email: String
+  phone: String
+  address: String
+  city: String
+  country: String
+  approvalStatus: ApprovalStatus!
+  approvalReason: String
+  approvedAt: DateTime
+  isActive: Boolean!
+  createdAt: DateTime!
+  ownerName: String
+  ownerEmail: String
+  ownerPhone: String
+  ownerLastLoginAt: DateTime
+  userCount: Int
+  customerCount: Int
+  creditCount: Int
+}
+
+type AdminStats {
+  totalStoreOwners: Int!
+  pending: Int!
+  approved: Int!
+  rejected: Int!
+  suspended: Int!
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
 type ArchiveBatchPage {
   items: [ArchiveBatchType!]!
   pageInfo: PageInfo!
@@ -115,6 +159,8 @@ type BusinessType {
   emailReplyTo: String
   emailSignature: String
   brandColor: String!
+  hasW3formsAccessKey: Boolean!
+  w3formsAccessKeyHint: String
   retentionPolicy: RetentionPolicy!
   retentionNotificationsEnabled: Boolean!
   storageQuotaMb: Int!
@@ -155,6 +201,7 @@ input BusinessUpdateInput {
   emailReplyTo: String = null
   emailSignature: String = null
   brandColor: String = null
+  w3formsAccessKey: String = null
   retentionPolicy: RetentionPolicy = null
   retentionNotificationsEnabled: Boolean = null
 }
@@ -540,6 +587,25 @@ type Mutation {
   updateUser(id: ID!, input: UserUpdateInput!): UserType!
   deactivateUser(id: ID!): UserType!
   deleteUser(id: ID!): UserType!
+
+  """Approve a pending store owner. Full access follows at once."""
+  approveBusiness(id: ID!): AdminBusinessType!
+
+  """
+  Reject a store owner. They keep sign-in but see only the reason; nothing works.
+  """
+  rejectBusiness(id: ID!, reason: String!): AdminBusinessType!
+
+  """Suspend an approved store owner. Access is revoked immediately."""
+  suspendBusiness(id: ID!, reason: String!): AdminBusinessType!
+
+  """
+  Re-activate a suspended or rejected store owner (sets the status to APPROVED).
+  """
+  activateBusiness(id: ID!): AdminBusinessType!
+
+  """PERMANENTLY delete a store owner and ALL their data. Cannot be undone."""
+  deleteBusiness(id: ID!): MessagePayload!
   createCustomer(input: CustomerInput!): CustomerType!
   updateCustomer(id: ID!, input: CustomerInput!): CustomerType!
 
@@ -573,6 +639,14 @@ type Mutation {
   """
   deleteCredit(id: ID!): CreditType!
 
+  """Restore a credit from the Trash. Admin only."""
+  restoreCredit(id: ID!): CreditType!
+
+  """
+  Permanently delete a credit that is already in the Trash. Cannot be undone. Admin only.
+  """
+  permanentlyDeleteCredit(id: ID!): MessagePayload!
+
   """Overpayment is refused here, at the counter."""
   recordPayment(input: PaymentInput!): PaymentType!
 
@@ -580,6 +654,19 @@ type Mutation {
   Reverse a payment WITHOUT erasing it. The reason becomes part of the permanent record.
   """
   voidPayment(id: ID!, reason: String!): PaymentType!
+
+  """
+  Send a payment to the Trash. Its amount returns to the credit's balance. Admin only.
+  """
+  deletePayment(id: ID!): PaymentType!
+
+  """Restore a payment from the Trash. Admin only."""
+  restorePayment(id: ID!): PaymentType!
+
+  """
+  Permanently delete a payment already in the Trash. Cannot be undone. Admin only.
+  """
+  permanentlyDeletePayment(id: ID!): MessagePayload!
 
   """Queue an immediate reminder. The sweep delivers it."""
   sendReminder(creditId: ID!): ScheduledReminderType!
@@ -785,6 +872,15 @@ type Query {
 
   """Staff accounts in the caller's business."""
   users(page: PageInput = null, search: String = null, role: String = null, isActive: Boolean = null): UserPage!
+
+  """Store-owner counts by approval state. SUPER_ADMIN only."""
+  adminStats: AdminStats!
+
+  """Every store owner, optionally filtered by status. SUPER_ADMIN only."""
+  adminBusinesses(page: PageInput = null, status: ApprovalStatus = null, search: String = null): AdminBusinessPage!
+
+  """One store owner, with its owner and counts. SUPER_ADMIN only."""
+  adminBusiness(id: ID!): AdminBusinessType!
   customer(id: ID!): CustomerType!
   customers(filter: CustomerFilterInput = null, page: PageInput = null, sort: SortInput = null): CustomerPage!
 
@@ -802,6 +898,12 @@ type Query {
   credits(filter: CreditFilterInput = null, page: PageInput = null, sort: SortInput = null): CreditPage!
   payment(id: ID!): PaymentType!
   payments(filter: PaymentFilterInput = null, page: PageInput = null, sort: SortInput = null): PaymentPage!
+
+  """Credits in the Trash: soft-deleted, recoverable."""
+  deletedCredits(page: PageInput = null): CreditPage!
+
+  """Payments in the Trash: soft-deleted, recoverable."""
+  deletedPayments(page: PageInput = null): PaymentPage!
 
   """
   Every payment on a credit, VOIDED ONES INCLUDED -- the ledger is append-only and the UI strikes voids through rather than hiding them.
@@ -835,7 +937,7 @@ type Query {
   export(id: ID!): ExportJobType!
 
   """The audit trail. ADMIN and above."""
-  auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null): AuditLogPage!
+  auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null, action: AuditAction = null, search: String = null): AuditLogPage!
 }
 
 input RegisterInput {
@@ -1069,6 +1171,8 @@ type UserType {
   lastLoginAt: DateTime
   createdAt: DateTime!
   permissions: [String!]!
+  approvalStatus: String!
+  approvalReason: String
 }
 
 input UserUpdateInput {

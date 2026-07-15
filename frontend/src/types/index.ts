@@ -90,6 +90,15 @@ export const CLOSED_CREDIT_STATUSES: readonly CreditStatus[] = ["PAID", "CANCELL
 export const CUSTOMER_STATUSES = ["ACTIVE", "INACTIVE", "BLOCKED", "DEFAULTED"] as const;
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number];
 
+/**
+ * Platform approval state of a Business (tenant) — mirrors
+ * `backend/app/models/enums.py::ApprovalStatus`. Lives on the business, but is
+ * surfaced on the signed-in user (see `User.approvalStatus`) so the app can gate
+ * off `me`. Only APPROVED unlocks the business modules.
+ */
+export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "SUSPENDED"] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+
 export const PAYMENT_METHODS = [
   "CASH",
   "BANK_TRANSFER",
@@ -230,6 +239,14 @@ export interface User extends BaseEntity {
   language: string;
   /** Resolved server-side from ROLE_PERMISSIONS; never trust a client-side derivation. */
   permissions?: Permission[];
+  /**
+   * The approval state of this user's business, resolved server-side. APPROVED for a
+   * SUPER_ADMIN (no tenant). The app gates every business module on this being
+   * APPROVED — see the account-status screen. The server enforces it regardless.
+   */
+  approvalStatus?: ApprovalStatus;
+  /** Why the account was rejected/suspended — shown to the owner. Null otherwise. */
+  approvalReason?: string | null;
 }
 
 export interface WorkingHoursDay {
@@ -555,3 +572,42 @@ export interface Paginated<T> {
 }
 
 export type SortDirection = "asc" | "desc";
+
+// ---------------------------------------------------------------------------
+// Super Admin panel — mirrors AdminBusinessType / AdminStats in the backend schema.
+// ---------------------------------------------------------------------------
+export interface AdminBusiness {
+  id: ID;
+  name: string;
+  slug: string;
+  description?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+
+  approvalStatus: ApprovalStatus;
+  approvalReason?: string | null;
+  approvedAt?: ISODateTime | null;
+  isActive: boolean;
+  createdAt: ISODateTime;
+
+  ownerName?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+  ownerLastLoginAt?: ISODateTime | null;
+
+  /** Populated on the detail view only; null in list rows. */
+  userCount?: number | null;
+  customerCount?: number | null;
+  creditCount?: number | null;
+}
+
+export interface AdminStats {
+  totalStoreOwners: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  suspended: number;
+}

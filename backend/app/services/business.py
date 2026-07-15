@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from slugify import slugify
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
 from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError, ValidationError
-from app.core.security import Permission
+from app.core.security import Permission, Role
 from app.models.base import utcnow
 from app.models.business import Business
-from app.models.enums import AuditAction, ReminderAudience, RetentionPolicy
+from app.models.enums import ApprovalStatus, AuditAction, ReminderAudience, RetentionPolicy
 from app.services.base import BaseService, diff_fields
 from app.storage.service import StorageService
 from app.utils.pagination import Page, PageInput, paginate
+
+log = logging.getLogger(__name__)
 
 # Fields a caller may set through create/update. Anything not on this list (id,
 # timestamps, deleted_at) is not settable from the outside -- an allow-list, so a
@@ -381,3 +386,236 @@ class BusinessService(BaseService):
         self.session.commit()
         self.session.refresh(business)
         return business
+
+    # =====================================================================
+    # Super Admin panel -- the platform operator's view over ALL tenants.
+    # Every method here is SUPER_ADMIN only, guarded twice: the BUSINESS_CREATE/
+    # BUSINESS_DELETE permission (which no ADMIN holds) AND an explicit is_super_admin
+    # check, matching list_businesses above.
+    # =====================================================================
+    def _require_super_admin(self, permission: Permission) -> None:
+        self.require(permission)
+        if not self.is_super_admin:
+            raise PermissionDeniedError("Only a platform administrator may perform this action")
+
+    def get_for_admin(self, business_id: str) -> Business:
+        """A single tenant for the admin detail view."""
+        self._require_super_admin(Permission.BUSINESS_CREATE)
+        business = self.session.get(Business, business_id)
+        if business is None or business.deleted_at is not None:
+            raise NotFoundError("Business not found")
+        return business
+
+    def list_for_admin(
+        self,
+        page: PageInput | None = None,
+        *,
+        status: ApprovalStatus | None = None,
+        search: str | None = None,
+    ) -> Page[Business]:
+        """Every store owner on the platform, optionally filtered by approval state."""
+        self._require_super_admin(Permission.BUSINESS_CREATE)
+
+        stmt = select(Business).where(Business.deleted_at.is_(None))  # type: ignore[union-attr]
+        if status is not None:
+            stmt = stmt.where(Business.approval_status == status)
+        if search:
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(
+                col(Business.name).ilike(like)
+                | col(Business.slug).ilike(like)
+                | col(Business.email).ilike(like)
+            )
+        stmt = stmt.order_by(col(Business.created_at).desc())
+        return paginate(self.session, stmt, page or PageInput())
+
+    def admin_stats(self) -> dict[str, int]:
+        """Store-owner counts by approval state, for the super-admin dashboard cards."""
+        self._require_super_admin(Permission.BUSINESS_CREATE)
+        rows = self.session.execute(
+            select(Business.approval_status, func.count())
+            .where(Business.deleted_at.is_(None))  # type: ignore[union-attr]
+            .group_by(Business.approval_status)
+        ).all()
+        counts = {ApprovalStatus(status): int(n) for status, n in rows}
+        return {
+            "total": sum(counts.values()),
+            "pending": counts.get(ApprovalStatus.PENDING, 0),
+            "approved": counts.get(ApprovalStatus.APPROVED, 0),
+            "rejected": counts.get(ApprovalStatus.REJECTED, 0),
+            "suspended": counts.get(ApprovalStatus.SUSPENDED, 0),
+        }
+
+    def owners_for(self, business_ids: list[str]) -> dict[str, Any]:
+        """{business_id: earliest ADMIN user}. One query, so the admin list is N+1-free."""
+        from app.models.user import User
+
+        if not business_ids:
+            return {}
+        rows = self.session.exec(
+            select(User)
+            .where(
+                col(User.business_id).in_(business_ids),
+                User.role == Role.ADMIN,
+                col(User.deleted_at).is_(None),
+            )
+            .order_by(col(User.created_at).asc())
+        ).all()
+        owners: dict[str, Any] = {}
+        for user in rows:
+            # First (earliest) ADMIN wins -- that is the registrant who founded the shop.
+            if user.business_id:
+                owners.setdefault(user.business_id, user)
+        return owners
+
+    def counts_for(self, business_id: str) -> dict[str, int]:
+        """User / customer / credit totals for one tenant (admin detail view)."""
+        from app.models.credit import Credit
+        from app.models.customer import Customer
+        from app.models.user import User
+
+        def _count(model: Any) -> int:
+            return int(
+                self.session.execute(
+                    select(func.count()).where(
+                        model.business_id == business_id,
+                        col(model.deleted_at).is_(None),
+                    )
+                ).scalar_one()
+            )
+
+        return {
+            "users": _count(User),
+            "customers": _count(Customer),
+            "credits": _count(Credit),
+        }
+
+    def set_approval(
+        self,
+        business_id: str,
+        status: ApprovalStatus,
+        *,
+        reason: str | None = None,
+    ) -> Business:
+        """Approve / reject / suspend / re-activate a tenant. The heart of the panel.
+
+        A reason is REQUIRED for REJECTED and SUSPENDED -- the owner is shown it after
+        login, and "no functionality with no explanation" is a support ticket waiting
+        to happen. APPROVED clears any prior reason.
+        """
+        self._require_super_admin(Permission.BUSINESS_CREATE)
+
+        business = self.session.get(Business, business_id)
+        if business is None or business.deleted_at is not None:
+            raise NotFoundError("Business not found")
+
+        needs_reason = status in (ApprovalStatus.REJECTED, ApprovalStatus.SUSPENDED)
+        clean_reason = (reason or "").strip() or None
+        if needs_reason and not clean_reason:
+            raise ValidationError("A reason is required", field="reason")
+
+        before = ApprovalStatus(business.approval_status)
+        business.approval_status = status
+        business.approval_reason = clean_reason if needs_reason else None
+        business.approved_at = utcnow()
+        business.approved_by_user_id = self.ctx.user.id if self.ctx.user else None
+        # Keep the older on/off switch consistent: only an APPROVED tenant is active.
+        business.is_active = status is ApprovalStatus.APPROVED
+        self.session.add(business)
+
+        self.audit(
+            AuditAction.UPDATE,
+            "business",
+            business.id,
+            f"Business '{business.name}' set to {status.value} by platform admin",
+            {"approval_status": [before.value, status.value]},
+            business_id=business.id,
+        )
+        self.session.commit()
+        self.session.refresh(business)
+        return business
+
+    def hard_delete(self, business_id: str) -> str:
+        """PERMANENTLY delete a tenant and everything it owns. Irreversible.
+
+        SUPER_ADMIN only. Unlike ``soft_delete`` (which just hides the row), this
+        purges every customer, credit, payment, file record, log and user. There is
+        no restore. Returns the deleted business's name for the confirmation message.
+        """
+        self._require_super_admin(Permission.BUSINESS_DELETE)
+
+        business = self.session.get(Business, business_id)
+        if business is None:
+            raise NotFoundError("Business not found")
+
+        name = business.name
+        self._purge_tenant(business_id)
+        # There is no tenant audit log to write to -- we just deleted it -- and the
+        # super-admin belongs to no business, so the platform trail is the app log.
+        log.warning("Super-admin PERMANENTLY deleted business %s ('%s')", business_id, name)
+        self.session.commit()
+        # The bulk DELETEs above went in at the Core level, so the ORM identity map
+        # still holds now-ghost rows (the business, its users). Detach them so any
+        # later access on this session re-reads from the DB and sees them gone, rather
+        # than raising ObjectDeletedError on a stale instance.
+        self.session.expunge_all()
+        return name
+
+    def _purge_tenant(self, business_id: str) -> None:
+        """Delete every row a tenant owns, children before parents.
+
+        Order is load-bearing: SQLite checks foreign keys immediately, and two FKs are
+        RESTRICT (payment -> customer, credit -> customer), so payments and credits
+        MUST be gone before their customers. Relying on the business_id CASCADE alone
+        would risk a RESTRICT violation mid-cascade, depending on delete order.
+
+        NOTE: physical upload blobs are not removed here -- only their FileAsset rows.
+        On the ephemeral/cloud backends this is acceptable (the container or the
+        provider's lifecycle reclaims them); a future enhancement could detach each
+        asset through StorageService first.
+        """
+        from app.models.catalog import Category, Product, Service
+        from app.models.communication import (
+            EmailLog,
+            EmailTemplate,
+            Notification,
+            ScheduledReminder,
+        )
+        from app.models.credit import Credit, CreditItem, Payment
+        from app.models.customer import Customer
+        from app.models.file import FileAsset
+        from app.models.retention import ArchiveBatch, AuditLog, ExportJob
+        from app.models.user import PasswordResetToken, RefreshToken, User
+
+        session = self.session
+        ordered: list[Any] = [
+            Payment,
+            CreditItem,
+            ScheduledReminder,
+            EmailLog,
+            Credit,
+            Notification,
+            EmailTemplate,
+            Product,
+            Service,
+            Category,
+            Customer,
+            ArchiveBatch,
+            ExportJob,
+            FileAsset,
+            AuditLog,
+        ]
+        for model in ordered:
+            session.execute(sa_delete(model).where(model.business_id == business_id))
+
+        # User-scoped tokens first (they FK to user), then the users, then the tenant.
+        user_ids = list(
+            session.exec(select(User.id).where(User.business_id == business_id)).all()
+        )
+        if user_ids:
+            session.execute(sa_delete(RefreshToken).where(col(RefreshToken.user_id).in_(user_ids)))
+            session.execute(
+                sa_delete(PasswordResetToken).where(col(PasswordResetToken.user_id).in_(user_ids))
+            )
+        session.execute(sa_delete(User).where(User.business_id == business_id))
+        session.execute(sa_delete(Business).where(Business.id == business_id))
