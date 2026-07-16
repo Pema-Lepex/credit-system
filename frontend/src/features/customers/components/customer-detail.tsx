@@ -157,8 +157,11 @@ export function CustomerDetail({ id }: { id: ID }) {
                 </Link>
               ) : null}
               {hasPermission("payment:write") ? (
+                // A payment is always recorded against a specific credit, so there is
+                // no standalone "/payments/new" page. Send the user to this customer's
+                // credits, where each row opens the record-payment dialog inline.
                 <Link
-                  href={`/payments/new?customerId=${customer.id}`}
+                  href={`/credits?customer=${customer.id}`}
                   className={buttonVariants({ variant: "secondary", size: "sm" })}
                 >
                   <Receipt />
@@ -197,7 +200,10 @@ export function CustomerDetail({ id }: { id: ID }) {
 
       {/* ------------------------------------------------------ tabs + score */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        {/* min-w-0: a grid item defaults to min-width:auto, so a wide credits/
+            payments table would push this column past the viewport instead of
+            letting its own TableContainer scroll. This lets it shrink and scroll. */}
+        <div className="min-w-0 lg:col-span-2">
           <Tabs value={tab} defaultValue="credits" onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="credits">Credits ({customer.creditCount})</TabsTrigger>
@@ -250,7 +256,7 @@ export function CustomerDetail({ id }: { id: ID }) {
           </Tabs>
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <CreditScorePanel
             score={score?.score ?? customer.creditScore}
             reasons={score?.reasons}

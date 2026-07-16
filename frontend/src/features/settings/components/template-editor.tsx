@@ -324,7 +324,10 @@ export function TemplateEditor() {
       <form onSubmit={onSubmit} noValidate>
         <div className="grid gap-4 xl:grid-cols-2">
           {/* ------------------------------------------------------ left: form */}
-          <div className="space-y-4">
+          {/* min-w-0 on both columns: grid items are min-width:auto by default, so
+              the preview iframe / mono inputs would otherwise force the column wider
+              than the phone and overflow the page. */}
+          <div className="min-w-0 space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>Content</CardTitle>
@@ -503,7 +506,7 @@ export function TemplateEditor() {
           </div>
 
           {/* --------------------------------------------------- right: preview */}
-          <div className="xl:sticky xl:top-20 xl:self-start">
+          <div className="min-w-0 xl:sticky xl:top-20 xl:self-start">
             <Card className="overflow-hidden">
               <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
                 <div className="min-w-0">

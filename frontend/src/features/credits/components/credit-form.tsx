@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -39,17 +40,27 @@ import {
   todayISO,
   type CreditFormValues,
 } from "@/features/credits/lib/schema";
-import type {
-  CreditCreateInput,
-  CreditDetail,
-  CreditItemInput,
-  CustomerOption,
+import {
+  creditKeys,
+  CUSTOMER_BY_ID_QUERY,
+  type CreditCreateInput,
+  type CreditDetail,
+  type CreditItemInput,
+  type CustomerByIdResult,
+  type CustomerOption,
 } from "@/features/credits/queries";
+import { gqlRequest } from "@/lib/graphql/client";
 import { cn } from "@/lib/utils";
 
 export interface CreditFormProps {
   /** Present when editing. Absent means create. */
   credit?: CreditDetail;
+  /**
+   * Preselects the customer when creating from a customer's page (`?customerId=`).
+   * The user can still change it — this only saves them re-picking someone they
+   * just navigated from.
+   */
+  initialCustomerId?: string;
 }
 
 /**
@@ -65,7 +76,7 @@ export interface CreditFormProps {
  * onto the control (see lib/errors.ts) so the error appears where the mistake is,
  * not in a toast the user has to translate.
  */
-export function CreditForm({ credit }: CreditFormProps) {
+export function CreditForm({ credit, initialCustomerId }: CreditFormProps) {
   const router = useRouter();
   const money = useMoney();
   const business = useBusinessSettings();
@@ -121,7 +132,9 @@ export function CreditForm({ credit }: CreditFormProps) {
     }
 
     return {
-      customerId: "",
+      // Seed from the URL so the form is valid immediately; the picker's display
+      // name fills in once the lookup below resolves.
+      customerId: initialCustomerId ?? "",
       issuedDate: todayISO(),
       dueDate: defaultDueDate(),
       reminderDate: "",
@@ -131,7 +144,7 @@ export function CreditForm({ credit }: CreditFormProps) {
       initialPayment: "",
       items: [emptyItem("0")],
     };
-  }, [credit]);
+  }, [credit, initialCustomerId]);
 
   const form = useForm<CreditFormValues>({
     resolver: zodResolver(creditFormSchema),
@@ -141,6 +154,29 @@ export function CreditForm({ credit }: CreditFormProps) {
 
   const { control, register, handleSubmit, watch, setValue, setError, formState } = form;
   const fields = useFieldArray({ control, name: "items" });
+
+  // Arriving from a customer's page (?customerId=), resolve that id into a full
+  // customer so the picker shows their name instead of a blank box. Create mode
+  // only — an edit already carries its customer. Mirrors the same lookup the
+  // credits list uses for shared `?customer=` links.
+  const prefillCustomer = useQuery({
+    queryKey: creditKeys.customerById(initialCustomerId ?? ""),
+    queryFn: () =>
+      gqlRequest<CustomerByIdResult, { id: string }>(CUSTOMER_BY_ID_QUERY, {
+        id: initialCustomerId as string,
+      }),
+    enabled: !isEdit && Boolean(initialCustomerId) && customer?.id !== initialCustomerId,
+    select: (data) => data.customer,
+  });
+
+  useEffect(() => {
+    if (isEdit || !initialCustomerId || customer) return;
+    const resolved = prefillCustomer.data;
+    if (resolved && resolved.id === initialCustomerId) {
+      setCustomer(resolved);
+      setValue("customerId", resolved.id, { shouldValidate: true });
+    }
+  }, [isEdit, initialCustomerId, customer, prefillCustomer.data, setValue]);
 
   // The business's default tax rate only arrives after a round trip. Seed the first
   // (still-untouched) line with it rather than leaving 0 and making the user retype.

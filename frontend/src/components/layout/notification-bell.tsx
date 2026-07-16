@@ -122,7 +122,11 @@ function NotificationDropdownBody({
   };
 
   return (
-    <div className="flex max-h-[28rem] flex-col">
+    // Cap to the shorter of 28rem and the space actually on screen (minus the
+    // topbar + gutters), so on a short phone the panel never runs past the
+    // viewport — the list in the middle scrolls instead. 100dvh, not 100vh, so
+    // mobile browser chrome is accounted for.
+    <div className="flex max-h-[min(28rem,calc(100dvh-5rem))] flex-col">
       <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2.5">
         <p className="text-foreground text-sm font-semibold">
           Notifications

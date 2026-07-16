@@ -211,7 +211,10 @@ function BreakdownCard({ usage }: { usage: StorageUsage }) {
   const hasData = total > 0;
 
   return (
-    <Card>
+    // min-w-0: this card is a grid item holding a Recharts ResponsiveContainer and a
+    // table, both of which force the grid column wider than the phone (and overflow
+    // the page) unless the item is allowed to shrink below its content width.
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>What is using the space</CardTitle>
         <CardDescription>
@@ -330,7 +333,8 @@ function CountsCard({ usage }: { usage: StorageUsage }) {
   ];
 
   return (
-    <Card>
+    // min-w-0 so this grid item can shrink alongside its sibling on narrow screens.
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>What you have stored</CardTitle>
         <CardDescription>Every record in your business, counted.</CardDescription>
