@@ -1,0 +1,71 @@
+# -----------------------------------------------------------------------------
+# Keep the backend warm.
+#
+# WHY THIS EXISTS: the API runs on Render's free tier, which spins the service
+# down after ~15 minutes of inactivity. The next visitor's first request then
+# eats a 30-50s cold boot. Pinging /health on a schedule keeps the instance
+# awake so real users never hit that wall.
+#
+# COVERAGE: GitHub's scheduled runners are frequently delayed (and occasionally
+# skipped entirely under load), so a single ping per run is fragile against a
+# 15-minute sleep window. Each run therefore pings several times, spaced out, to
+# widen the window a single invocation covers.
+#
+# COST: the schedule is scoped to business hours (Bhutan, UTC+6) so we don't burn
+# Actions minutes keeping the server up at 3am when nobody is using it. A private
+# repo has a monthly Actions-minutes budget; a public repo's minutes are free.
+#
+# ZERO-MINUTES ALTERNATIVE: if you'd rather not spend Actions minutes at all,
+# delete this file and point a free external monitor at the same URL instead:
+#   - https://cron-job.org        (free, unlimited, 1-minute granularity)
+#   - https://uptimerobot.com     (free tier, 5-minute checks)
+# Monitor URL: https://credit-system-1.onrender.com/health
+# -----------------------------------------------------------------------------
+name: Keep backend warm
+
+on:
+  schedule:
+    # Every 10 minutes, 00:00-16:59 UTC == 06:00-22:59 Bhutan time (UTC+6).
+    # Cron is always UTC on GitHub Actions.
+    - cron: "*/10 0-16 * * *"
+  # Lets you trigger a wake-up by hand from the Actions tab.
+  workflow_dispatch:
+
+# If a slow run overlaps the next scheduled tick, let the new one proceed —
+# a fresh ping is what we want, not a queue of stale ones.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping /health a few times
+        env:
+          HEALTH_URL: https://credit-system-1.onrender.com/health
+        run: |
+          # Three pings ~4 minutes apart cover a ~12-minute window per run, which
+          # absorbs GitHub's scheduling jitter and still fits under the 15-minute
+          # sleep threshold. A cold boot can take up to ~60s, so allow for it.
+          for attempt in 1 2 3; do
+            echo "::group::Ping $attempt"
+            code=$(curl --silent --show-error --location \
+              --max-time 90 \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              "$HEALTH_URL" || echo "000")
+            echo "HTTP $code from $HEALTH_URL"
+            echo "::endgroup::"
+            # 200 ok, 503 = awake but a dependency is degraded — both mean "not
+            # asleep", which is all this job cares about. Only a total failure to
+            # connect (000) is worth surfacing.
+            if [ "$code" = "000" ]; then
+              echo "::warning::Could not reach the backend on attempt $attempt"
+            fi
+            # Don't sleep after the final ping.
+            if [ "$attempt" -lt 3 ]; then
+              sleep 240
+            fi
+          done

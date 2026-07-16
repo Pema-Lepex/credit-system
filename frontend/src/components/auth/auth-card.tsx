@@ -1,6 +1,9 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, type ReactNode } from "react";
 
 import { Alert } from "@/components/ui/alert";
+import { warmBackend } from "@/lib/graphql/warm";
 
 export interface AuthCardProps {
   title: string;
@@ -16,6 +19,12 @@ export interface AuthCardProps {
  * form is the hero, and a box around it just adds a line for no reason.
  */
 export function AuthCard({ title, description, error, children, footer }: AuthCardProps) {
+  // Start the backend booting the instant any auth screen appears, so the cold
+  // start overlaps the user reading and typing instead of blocking their submit.
+  useEffect(() => {
+    warmBackend();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">

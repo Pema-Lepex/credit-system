@@ -161,8 +161,19 @@ function useInvalidateNotifications() {
   return () => queryClient.invalidateQueries({ queryKey: notificationKeys.all });
 }
 
+/**
+ * Mark one notification read — optimistically.
+ *
+ * Clicking a notification in the bell dropdown should feel instant, but the round
+ * trip is a full GraphQL request. So we apply the change to the cache up front:
+ * flip the item to READ in every cached list page and drop the unread badge by
+ * one, immediately. If the server rejects it we roll the snapshot back; either
+ * way we re-sync from the server on settle.
+ */
 export function useMarkRead() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateNotifications();
+
   return useMutation({
     mutationFn: async (id: ID) => {
       const data = await gqlRequest<{ markNotificationRead: AppNotification }, { id: ID }>(
@@ -171,7 +182,58 @@ export function useMarkRead() {
       );
       return data.markNotificationRead;
     },
-    onSuccess: () => void invalidate(),
+
+    onMutate: async (id: ID) => {
+      // Stop any in-flight refetch from clobbering the optimistic snapshot.
+      await queryClient.cancelQueries({ queryKey: notificationKeys.all });
+
+      // Snapshot everything we touch so onError can restore it verbatim.
+      const listSnapshots = queryClient.getQueriesData<NotificationPage>({
+        queryKey: notificationKeys.all,
+      });
+      const previousCount = queryClient.getQueryData<number>(notificationKeys.unreadCount());
+
+      // Was the target actually unread? Only then should the badge move.
+      let wasUnread = false;
+      const readAt = new Date().toISOString();
+
+      for (const [key, page] of listSnapshots) {
+        if (!page) continue;
+        let changed = false;
+        const items = page.items.map((item) => {
+          if (item.id !== id || item.state !== "UNREAD") return item;
+          changed = true;
+          wasUnread = true;
+          return { ...item, state: "READ" as NotificationState, readAt };
+        });
+        if (!changed) continue;
+        queryClient.setQueryData<NotificationPage>(key, {
+          ...page,
+          items,
+          unreadCount: Math.max(0, page.unreadCount - 1),
+        });
+      }
+
+      if (wasUnread && typeof previousCount === "number") {
+        queryClient.setQueryData<number>(
+          notificationKeys.unreadCount(),
+          Math.max(0, previousCount - 1),
+        );
+      }
+
+      return { listSnapshots, previousCount };
+    },
+
+    onError: (_error, _id, context) => {
+      // Put every cache back exactly as it was before the optimistic write.
+      context?.listSnapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      if (context?.previousCount !== undefined) {
+        queryClient.setQueryData(notificationKeys.unreadCount(), context.previousCount);
+      }
+    },
+
+    // Reconcile with server truth whether we succeeded or rolled back.
+    onSettled: () => void invalidate(),
   });
 }
 

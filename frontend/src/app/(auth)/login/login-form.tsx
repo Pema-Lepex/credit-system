@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { AuthCard } from "@/components/auth/auth-card";
@@ -40,6 +40,23 @@ export function LoginForm() {
   const { login } = useAuth();
   const [formError, setFormError] = useState<string | null>(null);
 
+  // The backend runs on a scale-to-zero host: the first request after it sleeps
+  // can take up to ~a minute to cold-boot. Rather than leave the user staring at
+  // a silent spinner wondering if it broke, we flip to a reassuring message once
+  // the sign-in has been running longer than a warm request ever would.
+  const [isWakingServer, setIsWakingServer] = useState(false);
+  const wakingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearWakingTimer = () => {
+    if (wakingTimer.current) {
+      clearTimeout(wakingTimer.current);
+      wakingTimer.current = null;
+    }
+  };
+
+  // Never leave a timer running if the user navigates away mid-submit.
+  useEffect(() => clearWakingTimer, []);
+
   const {
     register,
     handleSubmit,
@@ -51,6 +68,10 @@ export function LoginForm() {
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
+    // Only a genuinely slow (cold-starting) request should trip the message; a
+    // normal warm sign-in resolves in well under this and the user never sees it.
+    setIsWakingServer(false);
+    wakingTimer.current = setTimeout(() => setIsWakingServer(true), 3500);
     try {
       const user = await login(values.email, values.password);
       // The one role-based fork: the platform operator lands on the admin panel,
@@ -66,6 +87,9 @@ export function LoginForm() {
             "Incorrect email or password."
           : "We couldn't reach the server. Check your connection and try again.",
       );
+    } finally {
+      clearWakingTimer();
+      setIsWakingServer(false);
     }
   });
 
@@ -131,10 +155,21 @@ export function LoginForm() {
           size="lg"
           fullWidth
           isLoading={isSubmitting}
-          loadingText="Signing in…"
+          loadingText={isWakingServer ? "Starting up the server…" : "Signing in…"}
         >
           Sign in
         </Button>
+
+        {isWakingServer ? (
+          // aria-live so a screen reader announces the wait without stealing focus.
+          <p
+            aria-live="polite"
+            className="text-muted-foreground text-center text-xs leading-relaxed"
+          >
+            The server was asleep and is waking up. This can take up to a minute the
+            first time — thanks for your patience.
+          </p>
+        ) : null}
       </form>
     </AuthCard>
   );
