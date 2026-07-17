@@ -142,3 +142,23 @@ export function downloadInvoicePdf(creditId: ID, creditNumber: string): Promise<
 export function downloadReceiptPdf(paymentId: ID, paymentNumber: string): Promise<void> {
   return downloadPdf(`/payments/${paymentId}/receipt.pdf`, `${paymentNumber}.pdf`);
 }
+
+/**
+ * A customer's whole account on one page: every credit, what they paid, what is
+ * left. The document a customer actually asks for — not an invoice (one purchase)
+ * and not a monthly statement (one billing period).
+ *
+ * `includeSettled` adds the fully-paid credits; by default the page answers the
+ * question being asked ("what do I still owe") without burying it under paid rows.
+ */
+export function downloadCustomerStatementPdf(
+  customerId: ID,
+  customerCode: string,
+  options: { includeSettled?: boolean } = {},
+): Promise<void> {
+  const query = options.includeSettled ? "?include_settled=true" : "";
+  return downloadPdf(
+    `/customers/${customerId}/statement.pdf${query}`,
+    `statement-${customerCode}.pdf`,
+  );
+}

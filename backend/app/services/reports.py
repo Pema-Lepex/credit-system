@@ -53,7 +53,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 from sqlalchemy import and_, func, select
-from sqlmodel import col
+from sqlmodel import col, select
 
 from app.core.errors import NotFoundError, ValidationError
 from app.core.security import Permission
@@ -854,7 +854,11 @@ class ReportService(BaseService):
         self.require(Permission.REPORT_READ)
         business = self.get_business()
         payment = self._get_payment(payment_id)
-        credit = self._get_credit(payment.credit_id)
+        # None for an ACCOUNT payment -- one that pays down the customer's balance
+        # without naming an invoice, which is how a shop normally takes money. This
+        # used to be self._get_credit(payment.credit_id) unconditionally, so every
+        # such receipt died on "Credit record not found".
+        credit = self._get_credit(payment.credit_id) if payment.credit_id else None
         customer = self._get_customer(payment.customer_id)
         logo = await self._logo_bytes(business)
 
@@ -884,7 +888,9 @@ class ReportService(BaseService):
                 [
                     ("Receipt no.", payment.number),
                     ("Date", f"{local_paid:%d %b %Y %H:%M}"),
-                    ("Against", credit.number),
+                    # An account payment settles the balance, not one invoice --
+                    # so say that, rather than inventing a credit number.
+                    ("Against", credit.number if credit else "Account balance"),
                     ("Method", PaymentMethod(payment.method).value.replace("_", " ").title()),
                 ],
             ),
@@ -899,23 +905,36 @@ class ReportService(BaseService):
 
         rows: list[list[Any]] = [
             ["Description", "Amount"],
-            [Paragraph(f"Payment against credit {credit.number}", st["Cell"]), _money(payment.amount, sym)],
+            [
+                Paragraph(
+                    f"Payment against credit {credit.number}"
+                    if credit
+                    else f"Payment to {_esc(customer.name)}'s account",
+                    st["Cell"],
+                ),
+                _money(payment.amount, sym),
+            ],
         ]
         if payment.reference:
             rows.append([Paragraph(f"Reference: {_esc(payment.reference)}", st["Cell"]), ""])
         flow.append(_items_table(rows, widths=[120 * mm, 54 * mm]))
         flow.append(Spacer(1, 5 * mm))
 
-        flow.append(
-            _totals_block(
-                [
-                    ("Credit total", _money(credit.grand_total, sym), False),
-                    ("Amount received", _money(payment.amount, sym), True),
-                    ("Balance after payment", _money(payment.balance_after, sym), True),
-                ],
-                st,
+        # balance_after means different things on the two paths, and the label has to
+        # be honest about which: a credit's remaining amount, or the customer's whole
+        # account balance. See PaymentService.record vs record_to_account.
+        totals: list[Any] = []
+        if credit is not None:
+            totals.append(("Credit total", _money(credit.grand_total, sym), False))
+        totals.append(("Amount received", _money(payment.amount, sym), True))
+        totals.append(
+            (
+                "Balance on this credit" if credit else "Account balance after payment",
+                _money(payment.balance_after, sym),
+                True,
             )
         )
+        flow.append(_totals_block(totals, st))
 
         if payment.notes:
             flow.append(Spacer(1, 6 * mm))
@@ -934,9 +953,156 @@ class ReportService(BaseService):
         doc.build(flow, onFirstPage=_page_footer, onLaterPages=_page_footer)
         return buf.getvalue()
 
+    async def customer_statement_pdf(
+        self, customer_id: str, *, include_settled: bool = False
+    ) -> bytes:
+        """One page a customer can hold: every credit, what they paid, what is left.
+
+        The document a shopkeeper is actually asked for -- "show me what I owe".
+        Neither an invoice (that is one purchase) nor a monthly statement (that is
+        one billing period): this is the whole account, right now.
+
+        The numbers are read straight off the credits, which apply_settlement keeps
+        true after every payment -- so this cannot disagree with the Credits list or
+        the customer's Account page. Nothing here recomputes anything.
+
+        ``include_settled`` adds the fully-paid credits. Off by default: the usual
+        question is "what do I still owe", and a year of settled rows buries it.
+        Generated on demand and never stored, like every other document here.
+        """
+        self.require(Permission.REPORT_READ)
+        business = self.get_business()
+        customer = self._get_customer(customer_id)
+        logo = await self._logo_bytes(business)
+
+        sym = business.currency_symbol
+        today = today_in(business.timezone)
+
+        stmt = select(Credit).where(
+            Credit.business_id == self.scope_id,  # TENANCY BOUNDARY
+            Credit.customer_id == customer.id,
+            col(Credit.deleted_at).is_(None),
+            col(Credit.archived_at).is_(None),
+            Credit.status != CreditStatus.CANCELLED,
+        )
+        if not include_settled:
+            stmt = stmt.where(col(Credit.status).in_(list(CreditStatus.open_statuses())))
+        credits = list(
+            self.session.exec(
+                stmt.order_by(col(Credit.issued_date).asc(), col(Credit.created_at).asc())
+            ).all()
+        )
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=A4,
+            leftMargin=18 * mm,
+            rightMargin=18 * mm,
+            topMargin=15 * mm,
+            bottomMargin=20 * mm,
+            title=f"Account statement {customer.code}",
+            author=business.name,
+        )
+        st = _styles()
+        flow: list[Any] = [
+            _letterhead(business, logo, "ACCOUNT STATEMENT", customer.code, st),
+            Spacer(1, 8 * mm),
+            _parties_block(
+                business,
+                customer,
+                st,
+                [
+                    ("Statement date", f"{today:%d %b %Y}"),
+                    ("Customer", customer.code),
+                    (
+                        "Showing",
+                        "All credits" if include_settled else "Unpaid credits only",
+                    ),
+                ],
+            ),
+            Spacer(1, 7 * mm),
+        ]
+
+        rows: list[list[Any]] = [["Date", "Reference", "Due", "Total", "Paid", "Still owing"]]
+        for credit in credits:
+            rows.append(
+                [
+                    Paragraph(f"{credit.issued_date:%d %b %Y}", st["Cell"]),
+                    Paragraph(_esc(credit.number), st["Cell"]),
+                    Paragraph(_due_label(credit, today), st["Cell"]),
+                    _money(credit.grand_total, sym),
+                    _money(credit.amount_paid, sym),
+                    _money(credit.remaining_amount, sym),
+                ]
+            )
+        if not credits:
+            rows.append(
+                [
+                    Paragraph(
+                        "Nothing outstanding — this account is fully settled.", st["Cell"]
+                    ),
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+
+        flow.append(
+            _items_table(rows, widths=[24 * mm, 32 * mm, 30 * mm, 28 * mm, 28 * mm, 32 * mm])
+        )
+        flow.append(Spacer(1, 5 * mm))
+
+        billed = sum((c.grand_total for c in credits), ZERO)
+        paid = sum((c.amount_paid for c in credits), ZERO)
+        owing = sum((c.remaining_amount for c in credits), ZERO)
+        overdue = sum(
+            (c.remaining_amount for c in credits if CreditStatus(c.status) is CreditStatus.OVERDUE),
+            ZERO,
+        )
+
+        totals: list[tuple[str, str, bool]] = [
+            (f"Credits shown ({len(credits)})", _money(billed, sym), False),
+            ("Paid", _money(paid, sym), False),
+        ]
+        if overdue > ZERO:
+            totals.append(("Of which overdue", _money(overdue, sym), False))
+        totals.append(("Total still owing", _money(owing, sym), True))
+        flow.append(_totals_block(totals, st))
+
+        # The account balance can differ from the sum above -- an advance sits on the
+        # account, not on any credit, and settled credits are hidden by default. Say
+        # so rather than let two numbers on one page disagree in silence.
+        balance = customer.ledger_balance
+        if balance < ZERO:
+            flow.append(Spacer(1, 6 * mm))
+            flow.append(
+                Paragraph(
+                    f"{_esc(customer.name)} has paid {_money(abs(balance), sym)} in advance. "
+                    f"It will be set against their next purchase.",
+                    st["Muted"],
+                )
+            )
+
+        flow.append(Spacer(1, 10 * mm))
+        flow.append(
+            Paragraph(
+                f"Account statement for {_esc(customer.name)} ({customer.code}), "
+                f"issued {today:%d %b %Y} by {_esc(business.name)}."
+                + (f" Questions? Call {_esc(business.phone)}." if business.phone else ""),
+                st["Muted"],
+            )
+        )
+        doc.build(flow, onFirstPage=_page_footer, onLaterPages=_page_footer)
+        return buf.getvalue()
+
     # ---------------------------------------------------------------- helpers
-    def _get_credit(self, credit_id: str) -> Credit:
-        credit = self.session.get(Credit, credit_id)
+    def _get_credit(self, credit_id: str | None) -> Credit:
+        # session.get(Credit, None) warns ("fully NULL primary key identity") and
+        # will raise in a future SQLAlchemy -- callers must not pass None.
+        credit = self.session.get(Credit, credit_id) if credit_id else None
         if credit is None or credit.deleted_at is not None:
             raise NotFoundError("Credit record not found")
         self.assert_in_scope(credit.business_id)
@@ -1245,6 +1411,22 @@ def _page_footer(canvas: Any, doc: Any) -> None:
     canvas.setStrokeColor(_LINE)
     canvas.line(18 * mm, 15 * mm, A4[0] - 18 * mm, 15 * mm)
     canvas.restoreState()
+
+
+def _due_label(credit: Credit, today: date) -> str:
+    """What a CUSTOMER needs to read in the Due column -- not a status enum.
+
+    'PARTIALLY_PAID' means nothing to the person holding the page; "12 days late"
+    means everything.
+    """
+    if CreditStatus(credit.status) is CreditStatus.PAID:
+        return "Paid"
+    days = (credit.due_date - today).days
+    if days < 0:
+        return f"{abs(days)} day{'s' if abs(days) != 1 else ''} late"
+    if days == 0:
+        return "Due today"
+    return f"{credit.due_date:%d %b %Y}"
 
 
 def _footer_text(business: Business, due: date) -> str:

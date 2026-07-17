@@ -239,6 +239,37 @@ async def receipt_pdf(payment_id: str, ctx: CtxDep) -> StreamingResponse:
     )
 
 
+@router.get("/customers/{customer_id}/statement.pdf")
+async def customer_statement_pdf(
+    customer_id: str, ctx: CtxDep, include_settled: bool = False
+) -> StreamingResponse:
+    """The page a customer asks for: every credit, what they paid, what is left.
+
+    ``include_settled=true`` adds the fully-paid ones; by default it answers the
+    question actually being asked ("what do I still owe") without burying it under a
+    year of settled rows.
+    """
+    from io import BytesIO
+
+    try:
+        pdf = await ReportService(ctx).customer_statement_pdf(
+            customer_id, include_settled=include_settled
+        )
+    except AppError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.message) from exc
+
+    return StreamingResponse(
+        BytesIO(pdf),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="statement-{customer_id[:8]}.pdf"',
+            # Regenerated every time, never stored: a statement downloaded tomorrow
+            # must show tomorrow's balance.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.get("/exports/{export_id}/download")
 async def download_export(export_id: str, ctx: CtxDep) -> Response:
     """Download a generated export (expires after EXPORT_TTL_HOURS)."""

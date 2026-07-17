@@ -15,7 +15,7 @@
  * balance. Charges in one column, payments in another, running balance on the right.
  */
 
-import { ArrowDownLeft, ArrowUpRight, Wallet, Zap } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, FileText, Wallet, Zap } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -34,11 +34,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  toast,
 } from "@/components/ui";
 import { StatementsPanel } from "@/features/ledger/components/statements-panel";
 import { QuickSaleDialog } from "@/features/ledger/components/quick-sale-dialog";
 import { RecordAccountPaymentDialog } from "@/features/ledger/components/record-account-payment-dialog";
 import { useCustomerLedger, type LedgerEntryRow } from "@/features/ledger/api";
+import { downloadCustomerStatementPdf } from "@/features/credits/lib/rest";
 import { useCurrency } from "@/features/common/use-currency";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn, formatDate } from "@/lib/utils";
@@ -47,6 +49,8 @@ import type { ID, Money } from "@/types";
 interface CustomerAccountTabProps {
   customerId: ID;
   customerName: string;
+  /** For the statement's filename — statement-CUST-0007.pdf reads better than a uuid. */
+  customerCode: string;
   /** The ledger balance: NOT clamped. Negative means they have paid ahead. */
   balance: Money;
 }
@@ -54,6 +58,7 @@ interface CustomerAccountTabProps {
 export function CustomerAccountTab({
   customerId,
   customerName,
+  customerCode,
   balance,
 }: CustomerAccountTabProps) {
   const [page, setPage] = useState(1);
@@ -78,13 +83,18 @@ export function CustomerAccountTab({
 
       <Card>
         <CardContent className="p-0">
-          <div className="border-border flex items-center justify-between border-b p-4">
-            <div>
+          <div className="border-border flex flex-wrap items-center justify-between gap-3 border-b p-4">
+            <div className="min-w-0">
               <h3 className="text-foreground text-sm font-semibold">Account history</h3>
               <p className="text-muted-foreground text-xs">
                 Every charge and payment, with the balance after each one.
               </p>
             </div>
+            <StatementButton
+              customerId={customerId}
+              customerCode={customerCode}
+              customerName={customerName}
+            />
           </div>
 
           {ledger.isPending ? (
@@ -143,6 +153,54 @@ export function CustomerAccountTab({
         balance={balance}
       />
     </div>
+  );
+}
+
+/**
+ * Download the customer's account statement.
+ *
+ * A plain button rather than a menu: "show me what I owe" is one question with one
+ * answer, and the paid-history variant is a rare enough want that it does not earn
+ * a dropdown in front of the common case.
+ */
+function StatementButton({
+  customerId,
+  customerCode,
+  customerName,
+}: {
+  customerId: ID;
+  customerCode: string;
+  customerName: string;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      await downloadCustomerStatementPdf(customerId, customerCode);
+      toast.success("Statement downloaded", {
+        description: `Everything ${customerName} still owes, on one page.`,
+      });
+    } catch (error) {
+      toast.error("Could not download the statement", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      leftIcon={<FileText />}
+      isLoading={busy}
+      className="shrink-0"
+      onClick={() => void download()}
+    >
+      Statement
+    </Button>
   );
 }
 

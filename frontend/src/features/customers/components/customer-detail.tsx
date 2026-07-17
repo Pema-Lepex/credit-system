@@ -219,6 +219,7 @@ export function CustomerDetail({ id }: { id: ID }) {
               <CustomerAccountTab
                 customerId={customer.id}
                 customerName={customer.name}
+                customerCode={customer.code}
                 balance={customer.ledgerBalance}
               />
             </TabsContent>
