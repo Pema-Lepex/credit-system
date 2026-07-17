@@ -239,3 +239,69 @@ async def test_another_tenants_customer_has_no_statement(ctx, session):
 
     with pytest.raises(NotFoundError):
         await ReportService(ctx).customer_statement_pdf(theirs.id)
+
+
+# ---------------------------------------------------------------------------
+# The payments export — money must never silently vanish from a report
+# ---------------------------------------------------------------------------
+def test_the_payments_export_includes_account_payments(ctx, session, customer):
+    """THE bug: the export inner-joined Credit, so a payment that names no credit
+    was dropped from the report entirely — with nothing to say anything was missing.
+    """
+    from app.services.export import ExportService
+
+    credit = _buy(ctx, customer, "450")
+    session.commit()
+    direct = PaymentService(ctx).record(ctx, credit_id=credit.id, amount=D("50"))
+    account = PaymentService(ctx).record_to_account(
+        ctx, customer_id=customer.id, amount=D("200")
+    )
+    session.commit()
+
+    dataset = ExportService(ctx)._payments({})
+    numbers = {row[0] for row in dataset.rows}
+
+    assert direct.number in numbers
+    assert account.number in numbers, "the account payment vanished from the report"
+    assert len(dataset.rows) == 2
+
+
+def test_the_export_total_matches_the_money_taken(ctx, session, customer):
+    """The number a shopkeeper reconciles against their cash drawer."""
+    from app.services.export import ExportService
+
+    credit = _buy(ctx, customer, "450")
+    session.commit()
+    PaymentService(ctx).record(ctx, credit_id=credit.id, amount=D("50"))
+    PaymentService(ctx).record_to_account(ctx, customer_id=customer.id, amount=D("200"))
+    session.commit()
+
+    dataset = ExportService(ctx)._payments({})
+    assert sum(Decimal(str(row[4])) for row in dataset.rows) == D("250")
+
+
+def test_an_account_payment_names_its_target_in_the_export(ctx, session, customer):
+    """A blank Credit cell reads like data went missing. Say what it settled."""
+    from app.services.export import ExportService
+
+    _buy(ctx, customer, "450")
+    session.commit()
+    PaymentService(ctx).record_to_account(ctx, customer_id=customer.id, amount=D("200"))
+    session.commit()
+
+    row = ExportService(ctx)._payments({}).rows[0]
+    assert row[1] == "Account balance"
+    assert row[2] == customer.name
+
+
+def test_a_customer_is_still_required_on_every_payment(ctx, session, customer):
+    """The Customer join stays INNER on purpose: a payment with no customer is a
+    corruption, and silently hiding it would be worse than failing."""
+    from app.services.export import ExportService
+
+    _buy(ctx, customer, "450")
+    session.commit()
+    PaymentService(ctx).record_to_account(ctx, customer_id=customer.id, amount=D("200"))
+    session.commit()
+
+    assert all(row[2] for row in ExportService(ctx)._payments({}).rows)

@@ -464,7 +464,13 @@ class ExportService(BaseService):
     def _payments(self, filters: dict[str, Any]) -> Dataset:
         stmt = (
             select(Payment, Credit.number, Customer.name)
-            .join(Credit, col(Payment.credit_id) == col(Credit.id))
+            # OUTER join, and that is load-bearing. An ACCOUNT payment settles the
+            # customer's balance and names no credit (credit_id IS NULL), so an inner
+            # join silently DROPPED it -- money missing from a financial report, with
+            # nothing to indicate anything had been left out. The customer join stays
+            # inner: every payment has a customer, and one that did not would be a
+            # corruption worth failing on.
+            .join(Credit, col(Payment.credit_id) == col(Credit.id), isouter=True)
             .join(Customer, col(Payment.customer_id) == col(Customer.id))
             .where(
                 Payment.business_id == self.scope_id,  # TENANCY BOUNDARY
@@ -490,7 +496,9 @@ class ExportService(BaseService):
         rows = [
             [
                 p.number,
-                credit_number,
+                # NULL for an account payment. Says so, rather than leaving a blank
+                # cell that reads like data went missing.
+                credit_number or "Account balance",
                 customer_name,
                 _dt(p.paid_at),
                 _money(p.amount),
