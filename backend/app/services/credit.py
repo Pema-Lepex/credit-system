@@ -25,7 +25,7 @@ from the payment ledger and reports any drift.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -35,9 +35,10 @@ from sqlmodel import col, select
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.security import Permission
 from app.models.base import utcnow
+from app.models.business import Business
 from app.models.credit import Credit, CreditItem
 from app.models.customer import Customer
-from app.models.enums import AuditAction, CreditStatus, ItemKind
+from app.models.enums import AuditAction, CreditStatus, ItemKind, LedgerEntryType
 from app.models.types import quantize_money
 from app.services.base import BaseService, ServiceContext
 from app.services.customer import recompute_aggregates, recompute_credit_score
@@ -276,6 +277,24 @@ class CreditService(BaseService):
 
         self.session.flush()
 
+        # DUAL-WRITE (Stage 2): a credit IS a charge against the customer's account.
+        #
+        # ORDER IS LOAD-BEARING. This posts AFTER recalculate() (so grand_total is
+        # final) and BEFORE any initial payment -- because PaymentService.record
+        # dual-writes its own PAYMENT entry, and posting the charge afterwards would
+        # put a payment at seq 1 and the charge it settles at seq 2. The running
+        # balance would still end correct and the passbook would still be nonsense:
+        # you cannot pay for something before it has been charged.
+        from app.services.ledger import LedgerService  # local: avoids a service cycle
+
+        LedgerService(ctx).restate_document(
+            customer_id=credit.customer_id,
+            entry_type=LedgerEntryType.CHARGE,
+            amount=credit.grand_total,
+            credit_id=credit.id,
+            memo=f"Credit {credit.number}",
+        )
+
         if initial_payment and initial_payment > ZERO:
             # Circular import at module scope (payment imports credit); local import
             # keeps the dependency one-directional where it matters.
@@ -295,6 +314,86 @@ class CreditService(BaseService):
             f"({business.currency} {credit.grand_total})",
         )
         return credit
+
+    def quick_sale(
+        self,
+        ctx: ServiceContext,
+        *,
+        customer_id: str,
+        amount: Decimal,
+        description: str | None = None,
+        occurred_on: date | None = None,
+    ) -> Credit:
+        """One purchase, in one call: who, how much, and (optionally) what.
+
+        THE COUNTER PATH. A customer is standing there; the shopkeeper has seconds
+        and one hand. Everything ``create()`` asks for that this omits is a question
+        that has no answer at a counter:
+
+          * items      -> one line, the amount they typed. Itemising a Nu.30
+                          cigarette mid-queue is how you get a shopkeeper who uses
+                          paper instead.
+          * due_date   -> DERIVED, never asked. A purchase is not an invoice; the
+                          obligation is the month-end statement (models/statement.py).
+                          The date below exists only because Credit.due_date is still
+                          NOT NULL -- it is a migration artefact, not a promise
+                          anyone made, and it disappears with the column.
+          * discount / tax / attachments -> not at a counter. Edit the credit after.
+
+        Everything else is unchanged: it goes through ``create()``, so the ledger
+        entry, the customer aggregates, the credit score and the audit trail are all
+        exactly as they would be from the full form. This is a shorter QUESTION, not
+        a second write path.
+        """
+        self.require(Permission.CREDIT_WRITE)
+        business = self.get_business()
+        today = today_in(business.timezone)
+
+        amount = quantize_money(amount)
+        if amount <= ZERO:
+            raise ValidationError(
+                "How much did they take? Enter an amount greater than zero.",
+                field="amount",
+            )
+
+        issued = occurred_on or today
+        if issued > today:
+            raise ValidationError(
+                "That date is in the future. A sale is recorded when it happens.",
+                field="occurred_on",
+            )
+
+        return self.create(
+            ctx,
+            customer_id=customer_id,
+            items=[
+                CreditItemInput(
+                    name=(description or "").strip() or "Goods",
+                    quantity=Decimal("1"),
+                    unit_price=amount,
+                    kind=ItemKind.CUSTOM,  # not a catalog product; it is whatever they said
+                )
+            ],
+            issued_date=issued,
+            due_date=self._statement_due_date(business, issued),
+            # No tax on a quick sale: the business default would silently inflate a
+            # counter price the shopkeeper already quoted to the customer's face.
+            tax_percentage=ZERO,
+        )
+
+    @staticmethod
+    def _statement_due_date(business: Business, issued: date) -> date:
+        """When this purchase's STATEMENT will fall due.
+
+        Not a promise about this purchase -- it is the month-end date the purchase
+        will be billed on, so the legacy per-credit reminder machinery chases the
+        right day while both models coexist. When Credit.due_date is retired, this
+        goes with it.
+        """
+        import calendar
+
+        last = issued.replace(day=calendar.monthrange(issued.year, issued.month)[1])
+        return last + timedelta(days=max(0, business.statement_due_days))
 
     def _build_item(self, raw: CreditItemInput, credit: Credit, position: int) -> CreditItem:
         if raw.quantity <= ZERO:
@@ -415,6 +514,16 @@ class CreditService(BaseService):
             )
 
         self.session.flush()
+        # Editing line items moves the total, so the ledger follows with an
+        # ADJUSTMENT for the difference -- never by editing the original CHARGE.
+        from app.services.ledger import LedgerService
+
+        LedgerService(ctx).adjust_document(
+            credit_id=credit.id,
+            customer_id=credit.customer_id,
+            new_total=credit.grand_total,
+            memo=f"Credit {credit.number} amended",
+        )
         self._sync_customer(credit.customer_id)
         self.audit(
             AuditAction.UPDATE,
@@ -453,6 +562,13 @@ class CreditService(BaseService):
         self.session.add(credit)
         self._cancel_pending_reminders(credit.id)
         self.session.flush()
+        # A cancelled credit leaves the legacy aggregates (_live_credits excludes
+        # CANCELLED), so it must leave the ledger too -- as a reversal.
+        from app.services.ledger import LedgerService
+
+        LedgerService(ctx).reverse_document(
+            credit_id=credit.id, memo=f"Cancelled credit {credit.number}"
+        )
         self._sync_customer(credit.customer_id)
         self.audit(
             AuditAction.UPDATE, "credit", credit.id, f"Cancelled credit {credit.number}: {reason or 'no reason given'}"
@@ -477,6 +593,11 @@ class CreditService(BaseService):
 
         self._cancel_pending_reminders(credit.id)
         self.session.flush()
+        from app.services.ledger import LedgerService
+
+        LedgerService(ctx).reverse_document(
+            credit_id=credit.id, memo=f"Credit {credit.number} moved to Trash"
+        )
         self._sync_customer(credit.customer_id)
         self.audit(AuditAction.DELETE, "credit", credit.id, f"Deleted credit {credit.number}")
         return credit
@@ -517,6 +638,16 @@ class CreditService(BaseService):
         # may now be in the past). recalculate() re-derives status from the data.
         self.recalculate(credit, today=today)
         self.session.flush()
+        # Back into the balance as a NEW charge -- a reversal cannot be un-posted.
+        from app.services.ledger import LedgerService
+
+        LedgerService(self.ctx).restate_document(
+            customer_id=credit.customer_id,
+            entry_type=LedgerEntryType.CHARGE,
+            amount=credit.grand_total,
+            credit_id=credit.id,
+            memo=f"Credit {credit.number} restored from Trash",
+        )
         self._sync_customer(credit.customer_id)
         self.audit(AuditAction.UPDATE, "credit", credit.id, f"Restored credit {credit.number}")
         return credit

@@ -30,11 +30,12 @@ from app.core.security import Permission
 from app.models.base import utcnow
 from app.models.credit import Credit, Payment
 from app.models.customer import Customer
-from app.models.enums import AuditAction, CreditStatus, PaymentMethod
+from app.models.enums import AuditAction, CreditStatus, LedgerEntryType, PaymentMethod
 from app.models.types import quantize_money
 from app.services.base import BaseService, ServiceContext
 from app.services.credit import CreditService
 from app.services.customer import recompute_aggregates, recompute_credit_score
+from app.services.ledger import LedgerService
 from app.storage.service import StorageService
 from app.utils.dates import ensure_utc, today_in
 from app.utils.numbering import next_payment_number
@@ -57,6 +58,95 @@ class PaymentFilter:
 
 
 class PaymentService(BaseService):
+    # -------------------------------------------------------- account payment
+    def record_to_account(
+        self,
+        ctx: ServiceContext,
+        *,
+        customer_id: str,
+        amount: Decimal,
+        method: PaymentMethod = PaymentMethod.CASH,
+        paid_at: datetime | None = None,
+        reference: str | None = None,
+        notes: str | None = None,
+        receipt_file_id: str | None = None,
+    ) -> Payment:
+        """Record a payment against the customer's BALANCE. Stage 2's whole point.
+
+        This is what a shop actually does: the customer hands over Nu.10,000 on
+        salary day, and it pays down what they owe. It is not a payment for the
+        cigarette they bought on the 3rd, and this method never asks which one --
+        ``record()`` (below) is the legacy path that must.
+
+        COST: one Payment row and one ledger entry. Constant, whether the customer
+        has 4 purchases behind them or 40,000. Nothing walks their credits.
+
+        OVERPAYMENT IS ALLOWED HERE, deliberately -- unlike ``record()``, which
+        refuses it. Against one invoice, paying more than it is worth is a mistake.
+        Against an account it is an ADVANCE: a real thing shops take on salary day,
+        which lands as a negative balance. The legacy ``outstanding_balance`` clamps
+        that to zero and loses it; the ledger keeps it.
+        """
+        self.require(Permission.PAYMENT_WRITE)
+        business = self.get_business()
+        customer = self.get_scoped(Customer, customer_id, label="Customer")
+
+        amount = quantize_money(amount)
+        if amount <= ZERO:
+            raise ValidationError("A payment must be greater than zero", field="amount")
+
+        when = ensure_utc(paid_at) if paid_at else utcnow()
+
+        payment = Payment(
+            business_id=self.scope_id,
+            number=next_payment_number(self.session, self.scope_id, on=when.date()),
+            credit_id=None,  # THE point: this payment names no invoice
+            customer_id=customer.id,
+            amount=amount,
+            method=method,
+            reference=reference,
+            notes=notes,
+            paid_at=when,
+            receipt_file_id=receipt_file_id,
+            received_by_user_id=ctx.user.id if ctx.user else None,
+        )
+        self.session.add(payment)
+        self.session.flush()
+
+        entry = LedgerService(ctx).post(
+            customer_id=customer.id,
+            entry_type=LedgerEntryType.PAYMENT,
+            amount=-amount,  # the sign convention, applied once
+            occurred_at=when,
+            payment_id=payment.id,
+            memo=f"Payment {payment.number} ({method.value})",
+        )
+
+        # For an account payment this is the CUSTOMER's balance -- which is what the
+        # receipt should say. (On the legacy path it is the credit's remaining
+        # amount; see record(). Different questions, same column, because the two
+        # paths coexist during the migration.)
+        payment.balance_after = entry.balance_after
+        self.session.add(payment)
+
+        if receipt_file_id:
+            StorageService(self.session).attach(receipt_file_id)
+
+        self.session.flush()
+        # Keeps the legacy aggregates right too: recompute_aggregates sums payments
+        # by customer_id, not through credits, so an account payment already lowers
+        # outstanding_balance correctly with no changes there.
+        self._sync_customer(customer.id)
+
+        self.audit(
+            AuditAction.CREATE,
+            "payment",
+            payment.id,
+            f"Recorded {business.currency} {amount} to {customer.name}'s account "
+            f"({method.value}); balance now {entry.balance_after}",
+        )
+        return payment
+
     # ----------------------------------------------------------------- record
     def record(
         self,
@@ -126,6 +216,20 @@ class PaymentService(BaseService):
         if receipt_file_id:
             StorageService(self.session).attach(receipt_file_id)
 
+        # DUAL-WRITE (Stage 2). The legacy path keeps its per-credit semantics AND
+        # posts to the ledger, so the two models never drift apart while both exist.
+        # Without this the ledger would go stale the moment anyone took a payment
+        # the old way, and reconcile() would start reporting drift that is really
+        # just a missing hook.
+        LedgerService(ctx).post(
+            customer_id=credit.customer_id,
+            entry_type=LedgerEntryType.PAYMENT,
+            amount=-amount,
+            occurred_at=when,
+            payment_id=payment.id,
+            memo=f"Payment {payment.number} on {credit.number}",
+        )
+
         self.session.flush()
         self._sync_customer(credit.customer_id)
 
@@ -161,7 +265,16 @@ class PaymentService(BaseService):
         self.session.add(payment)
         self.session.flush()
 
-        credit = self.session.get(Credit, payment.credit_id)
+        # DUAL-WRITE: the legacy aggregates drop a voided payment (_live_payments),
+        # so the ledger has to give the money back too -- as a REVERSAL, never by
+        # editing the original.
+        LedgerService(ctx).reverse_document(
+            payment_id=payment.id, memo=f"Voided payment {payment.number}: {reason.strip()}"
+        )
+
+        # credit_id is None for an account payment (Stage 2) -- there is no invoice
+        # to recalculate, and the customer's balance already moved via the ledger.
+        credit = self.session.get(Credit, payment.credit_id) if payment.credit_id else None
         if credit is not None:
             self.session.refresh(credit)
             # Voiding can reopen a PAID credit. recalculate() re-derives the status
@@ -169,7 +282,7 @@ class PaymentService(BaseService):
             # PENDING/PARTIALLY_PAID/OVERDUE without any special-casing here.
             CreditService(ctx).recalculate(credit, today=today)
             self.session.flush()
-            self._sync_customer(credit.customer_id)
+        self._sync_customer(payment.customer_id)
 
         if payment.receipt_file_id:
             StorageService(self.session).detach(payment.receipt_file_id)
@@ -188,8 +301,10 @@ class PaymentService(BaseService):
     # outstanding balance, recoverable, and destroyable for good. All PAYMENT_DELETE
     # (admin-only). recalculate() already excludes deleted_at payments (see
     # CreditService), so the balance follows automatically.
-    def _recalc_credit(self, ctx: ServiceContext, credit_id: str) -> None:
-        credit = self.session.get(Credit, credit_id)
+    def _recalc_credit(self, ctx: ServiceContext, credit_id: str | None) -> None:
+        # None == an account payment: it has no invoice to re-derive. The caller
+        # still syncs the customer, which is where its money actually lives.
+        credit = self.session.get(Credit, credit_id) if credit_id else None
         if credit is None:
             return
         self.session.refresh(credit)
@@ -205,7 +320,13 @@ class PaymentService(BaseService):
         payment.deleted_at = utcnow()
         self.session.add(payment)
         self.session.flush()
+        # Trashing a payment returns its amount to the balance in the legacy model
+        # (recalculate excludes deleted_at rows), so the ledger must lose it too.
+        LedgerService(ctx).reverse_document(
+            payment_id=payment.id, memo=f"Payment {payment.number} moved to Trash"
+        )
         self._recalc_credit(ctx, payment.credit_id)
+        self._sync_customer(payment.customer_id)
 
         if payment.receipt_file_id:
             StorageService(self.session).detach(payment.receipt_file_id)
@@ -263,7 +384,16 @@ class PaymentService(BaseService):
         payment.deleted_at = None
         self.session.add(payment)
         self.session.flush()
+        # Back out of the Trash: a NEW entry, because a REVERSAL cannot be un-posted.
+        LedgerService(ctx).restate_document(
+            customer_id=payment.customer_id,
+            entry_type=LedgerEntryType.PAYMENT,
+            amount=-payment.amount,
+            payment_id=payment.id,
+            memo=f"Payment {payment.number} restored from Trash",
+        )
         self._recalc_credit(ctx, payment.credit_id)
+        self._sync_customer(payment.customer_id)
         self.audit(AuditAction.UPDATE, "payment", payment.id, f"Restored payment {payment.number}")
         return payment
 

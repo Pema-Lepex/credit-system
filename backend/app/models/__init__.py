@@ -29,6 +29,7 @@ from app.models.enums import (
     FileKind,
     ItemKind,
     LedgerEntryType,
+    StatementStatus,
     NotificationKind,
     NotificationState,
     PaymentMethod,
@@ -41,6 +42,7 @@ from app.models.enums import (
 from app.models.file import FileAsset
 from app.models.ledger import LedgerEntry
 from app.models.platform import PlatformSetting
+from app.models.statement import Statement
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.stored_blob import StoredBlob
 from app.models.types import MoneyType, quantize_money
@@ -72,6 +74,8 @@ __all__ = [
     "PasswordResetToken",
     "Payment",
     "PlatformSetting",
+    "Statement",
+    "StatementStatus",
     "Product",
     "RefreshToken",
     "ScheduledReminder",

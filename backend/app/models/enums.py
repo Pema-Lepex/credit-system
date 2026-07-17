@@ -139,6 +139,27 @@ class EmailTemplateKind(str, Enum):
     WHATSAPP_OVERDUE = "WHATSAPP_OVERDUE"
 
 
+class StatementStatus(str, Enum):
+    """The lifecycle of a monthly statement.
+
+    THIS is where a due date belongs. A shop customer buys 6-15 times a day and
+    settles once a month, so the obligation is "the July statement, by 10 August" --
+    not "that cigarette, by some date nobody agreed". One statement per customer per
+    month replaces four hundred per-purchase due dates, and one reminder replaces
+    four hundred.
+    """
+
+    #: The period is still running; charges are still landing in it.
+    OPEN = "OPEN"
+    #: The period is closed and the statement has been sent. The clock is running.
+    ISSUED = "ISSUED"
+    #: Paid off. Reached when the account balance covers it -- a statement is
+    #: settled by the BALANCE, never by allocating payments to it.
+    SETTLED = "SETTLED"
+    #: Issued, past its due date, and still not covered by the balance.
+    OVERDUE = "OVERDUE"
+
+
 class LedgerEntryType(str, Enum):
     """Every way a customer's balance can move.
 

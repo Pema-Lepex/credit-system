@@ -34,6 +34,7 @@ from app.scheduler.jobs import (
     daily_maintenance,
     monthly_maintenance,
     reminder_sweep,
+    statement_run,
     weekly_maintenance,
 )
 
@@ -69,6 +70,22 @@ def start_scheduler() -> AsyncIOScheduler | None:
         CronTrigger(minute=0),
         id="reminder_sweep",
         name="Send due-date reminders",
+        replace_existing=True,
+    )
+
+    # 01:15 -- before the cleanup, and well before any shop's reminder hour, so a
+    # statement that falls due today is already OVERDUE when the morning's reminders
+    # are chosen. Same ordering logic as promote_overdue inside the reminder sweep.
+    #
+    # DAILY, not monthly: closing is idempotent and refuses an unfinished period, so
+    # this is a no-op on ~28 days of every month. A monthly cron that misses its one
+    # firing (a scale-to-zero host asleep at 04:30 on the 1st) skips a shop's billing
+    # for a month; retrying daily costs one cheap query. See jobs.statement_run.
+    scheduler.add_job(
+        statement_run,
+        CronTrigger(hour=1, minute=15),
+        id="statement_run",
+        name="Close the month + refresh statement statuses",
         replace_existing=True,
     )
 

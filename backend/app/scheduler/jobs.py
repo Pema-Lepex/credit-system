@@ -46,6 +46,7 @@ from app.services.base import ServiceContext
 from app.services.credit import CreditService
 from app.services.reminder import ReminderService, SweepResult
 from app.services.retention import RetentionService
+from app.services.statement import StatementService
 from app.services.storage_stats import StorageStatsService
 
 log = logging.getLogger("app.scheduler")
@@ -271,12 +272,59 @@ async def monthly_maintenance() -> None:
                 log.exception("Integrity check failed for business %s", business.id)
 
 
+async def statement_run() -> None:
+    """Close last month for every business that has opted in, and re-derive statuses.
+
+    Runs DAILY, not monthly, and that is deliberate on both counts:
+
+      * CLOSING is guarded by ``close_period``'s idempotency (UNIQUE customer+period)
+        and by the "period has not finished" check, so a daily attempt is a no-op on
+        every day except the first few of a new month. A monthly cron that fires
+        while the host happens to be asleep -- which is the normal state of a
+        scale-to-zero deployment -- would skip a shop's billing for a whole month.
+        Retrying daily costs one cheap query and cannot double-bill.
+
+      * REFRESHING statuses genuinely is daily work: a statement falls overdue on a
+        particular morning, and a payment settles one the moment it lands.
+
+    Per-business local time, like every other job here: "the 1st" is the 1st in the
+    shop's timezone, not in UTC.
+    """
+    with session_scope() as session:
+        for business in _active_businesses(session):
+            if not business.statements_enabled:
+                continue
+            try:
+                ctx = _system_ctx(session, business.id)
+                service = StatementService(ctx)
+                today = _local_now(business).date()
+
+                result = service.close_period()
+                if result.created:
+                    log.info(
+                        "Issued %d statement(s) for %s (%s) totalling %s",
+                        result.created,
+                        business.name,
+                        result.period_start.strftime("%b %Y"),
+                        result.total_billed,
+                    )
+                changed = service.refresh_statuses(today=today)
+                if changed:
+                    log.info("Updated %d statement status(es) for %s", changed, business.name)
+                session.commit()
+            except Exception:
+                # One shop's bad month must not stop every other shop being billed.
+                session.rollback()
+                log.exception("Statement run failed for business %s", business.id)
+
+
 # ---------------------------------------------------------------------------
 # Manual triggers (the "Run now" buttons in the Storage Dashboard)
 # ---------------------------------------------------------------------------
 async def run_job_now(name: str) -> str:
     jobs = {
         "reminders": reminder_sweep,
+        "statements": statement_run,
         "daily": daily_maintenance,
         "weekly": weekly_maintenance,
         "monthly": monthly_maintenance,

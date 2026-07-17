@@ -104,7 +104,10 @@ export function usePaymentList() {
 function useInvalidatePaymentWrites() {
   const queryClient = useQueryClient();
 
-  return (creditId?: ID) => {
+  // `null` is a real value here, not an oversight: an ACCOUNT payment names no
+  // credit, so there is no credit detail or payment history to refresh — only the
+  // customer's balance, which the unconditional invalidations above already cover.
+  return (creditId?: ID | null) => {
     void queryClient.invalidateQueries({ queryKey: paymentKeys.all });
     void queryClient.invalidateQueries({ queryKey: creditKeys.lists() });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.all });

@@ -28,6 +28,8 @@ from app.models.business import Business
 from app.models.catalog import Category, Product, Service
 from app.models.communication import EmailTemplate, Notification, ScheduledReminder
 from app.models.credit import Credit, CreditItem, Payment
+from app.models.ledger import LedgerEntry
+from app.models.statement import Statement
 from app.models.customer import Customer
 from app.models.enums import ApprovalStatus, ArchiveState, ExportState
 from app.models.file import FileAsset
@@ -35,6 +37,8 @@ from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.user import User
 from app.graphql.types import (
+    LedgerEntryRow,
+    StatementType,
     AdminBusinessType,
     ArchiveBatchType,
     AuditLogType,
@@ -277,6 +281,7 @@ def to_customer(session: Session, customer: Customer) -> CustomerType:
         total_credit=money(customer.total_credit),
         total_paid=money(customer.total_paid),
         outstanding_balance=money(customer.outstanding_balance),
+        ledger_balance=money(customer.ledger_balance),
         credit_count=customer.credit_count,
         overdue_count=customer.overdue_count,
         last_credit_at=customer.last_credit_at,
@@ -373,11 +378,13 @@ def to_credit_item(item: CreditItem) -> CreditItemType:
 
 def to_payment(session: Session, payment: Payment) -> PaymentType:
     customer = session.get(Customer, payment.customer_id)
-    credit = session.get(Credit, payment.credit_id)
+    # credit_id is NULL for an account payment. session.get(Credit, None) warns
+    # ("fully NULL primary key identity") and will raise in a future SQLAlchemy.
+    credit = session.get(Credit, payment.credit_id) if payment.credit_id else None
     return PaymentType(
         id=strawberry.ID(payment.id),
         number=payment.number,
-        credit_id=strawberry.ID(payment.credit_id),
+        credit_id=strawberry.ID(payment.credit_id) if payment.credit_id else None,
         customer_id=strawberry.ID(payment.customer_id),
         customer_name=customer.name if customer else None,
         credit_number=credit.number if credit else None,
@@ -512,11 +519,56 @@ def _customer_row(customer: Customer) -> CustomerType:
         total_credit=money(customer.total_credit),
         total_paid=money(customer.total_paid),
         outstanding_balance=money(customer.outstanding_balance),
+        ledger_balance=money(customer.ledger_balance),
         credit_count=customer.credit_count,
         overdue_count=customer.overdue_count,
         last_credit_at=customer.last_credit_at,
         last_payment_at=customer.last_payment_at,
         created_at=customer.created_at,
+    )
+
+
+def to_ledger_entry(entry: LedgerEntry) -> LedgerEntryRow:
+    """One passbook row.
+
+    ``amount`` keeps its sign on the wire -- the UI decides which column to put it
+    in, and a client that only ever saw absolute values could not tell a charge from
+    a payment without re-deriving it from entry_type.
+    """
+    return LedgerEntryRow(
+        id=strawberry.ID(entry.id),
+        seq=entry.seq,
+        entry_type=entry.entry_type,
+        amount=money(entry.amount),
+        balance_after=money(entry.balance_after),
+        occurred_at=entry.occurred_at,
+        posted_at=entry.posted_at,
+        memo=entry.memo,
+        credit_id=strawberry.ID(entry.credit_id) if entry.credit_id else None,
+        payment_id=strawberry.ID(entry.payment_id) if entry.payment_id else None,
+        reverses_id=strawberry.ID(entry.reverses_id) if entry.reverses_id else None,
+    )
+
+
+def to_statement(session: Session, statement: Statement) -> StatementType:
+    customer = session.get(Customer, statement.customer_id)
+    return StatementType(
+        id=strawberry.ID(statement.id),
+        number=statement.number,
+        customer_id=strawberry.ID(statement.customer_id),
+        customer_name=customer.name if customer else None,
+        period_start=statement.period_start,
+        period_end=statement.period_end,
+        opening_balance=money(statement.opening_balance),
+        charges=money(statement.charges),
+        payments=money(statement.payments),
+        closing_balance=money(statement.closing_balance),
+        entry_count=statement.entry_count,
+        due_date=statement.due_date,
+        status=statement.status,
+        issued_at=statement.issued_at,
+        settled_at=statement.settled_at,
+        created_at=statement.created_at,
     )
 
 
@@ -557,6 +609,7 @@ def to_customer_rows(session: Session, customers: list[Customer]) -> list[Custom
                 total_credit=money(customer.total_credit),
                 total_paid=money(customer.total_paid),
                 outstanding_balance=money(customer.outstanding_balance),
+                ledger_balance=money(customer.ledger_balance),
                 credit_count=customer.credit_count,
                 overdue_count=customer.overdue_count,
                 last_credit_at=customer.last_credit_at,
@@ -616,7 +669,9 @@ def to_payment_rows(session: Session, payments: list[Payment]) -> list[PaymentTy
     """A page of payments for the LIST view: customers, credits and receipt URLs
     resolved in three queries total instead of three per row."""
     customers = _by_id(session, Customer, {p.customer_id for p in payments})
-    credits = _by_id(session, Credit, {p.credit_id for p in payments})
+    # Filter the Nones: an ACCOUNT payment names no credit, and passing NULL into an
+    # `id IN (...)` is a lookup that can never match.
+    credits = _by_id(session, Credit, {p.credit_id for p in payments if p.credit_id})
     receipts = _batch_file_urls(
         session, {p.receipt_file_id for p in payments if p.receipt_file_id}
     )
@@ -629,7 +684,7 @@ def to_payment_rows(session: Session, payments: list[Payment]) -> list[PaymentTy
             PaymentType(
                 id=strawberry.ID(payment.id),
                 number=payment.number,
-                credit_id=strawberry.ID(payment.credit_id),
+                credit_id=strawberry.ID(payment.credit_id) if payment.credit_id else None,
                 customer_id=strawberry.ID(payment.customer_id),
                 customer_name=customer.name if customer else None,  # type: ignore[attr-defined]
                 credit_number=credit.number if credit else None,  # type: ignore[attr-defined]

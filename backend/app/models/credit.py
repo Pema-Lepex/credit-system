@@ -179,7 +179,23 @@ class Payment(TenantEntity, table=True):
 
     number: str = Field(index=True, max_length=40)   # e.g. PAY-2026-0117
 
-    credit_id: str = Field(foreign_key="credit.id", index=True, max_length=32, ondelete="CASCADE")
+    #: NULLABLE, and that is the whole point of the ledger migration.
+    #:
+    #: This column used to be required, which forced the model to assert "every
+    #: payment settles one credit". A shop customer buys 6-15 times a day and pays
+    #: once a month against their BALANCE -- they are not paying for a cigarette.
+    #: Requiring credit_id meant a Nu.10,000 payment had to be split across ~400
+    #: invoice rows, answering a question the shopkeeper never asked.
+    #:
+    #: NULL == an ACCOUNT payment: it reduces what the customer owes, full stop.
+    #: See PaymentService.record_to_account. Non-NULL is the legacy per-credit path,
+    #: still supported so nothing that exists today breaks.
+    #:
+    #: ondelete stays CASCADE for the rows that DO name a credit; an account payment
+    #: has no parent to cascade from and is only reachable via customer_id.
+    credit_id: str | None = Field(
+        default=None, foreign_key="credit.id", index=True, max_length=32, ondelete="CASCADE"
+    )
     customer_id: str = Field(
         foreign_key="customer.id", index=True, max_length=32, ondelete="RESTRICT"
     )

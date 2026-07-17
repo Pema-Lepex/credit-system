@@ -37,6 +37,8 @@ from app.email.service import EmailService
 from app.graphql import mappers as m
 from app.graphql.context import GraphQLContext
 from app.graphql.inputs import (
+    AccountPaymentInput,
+    QuickSaleInput,
     BusinessUpdateInput,
     CategoryInput,
     ChangePasswordInput,
@@ -61,6 +63,7 @@ from app.graphql.inputs import (
 )
 from app.graphql.types import (
     AdminBusinessType,
+    ClosePeriodResult,
     ArchiveBatchType,
     AuthPayload,
     BusinessType,
@@ -95,6 +98,7 @@ from app.services.notification import NotificationService
 from app.services.payment import PaymentService
 from app.services.platform import PlatformService, resolve_registration_notice_key
 from app.services.reminder import ReminderService
+from app.services.statement import StatementService
 from app.services.retention import RetentionService
 from app.services.storage_stats import StorageStatsService
 from app.services.templates import TemplateService
@@ -869,6 +873,94 @@ class Mutation:
             receipt_file_id=str(input.receipt_file_id) if input.receipt_file_id else None,
         )
         return m.to_payment(ctx.session, payment)
+
+    @strawberry.mutation(
+        description=(
+            "Record a payment against a customer's ACCOUNT balance -- no credit is "
+            "named. One entry, constant cost, whether they have 4 purchases behind "
+            "them or 40,000. Overpayment is ALLOWED here and leaves the customer in "
+            "credit (an advance); unlike recordPayment, which refuses it against a "
+            "single invoice."
+        )
+    )
+    @commits
+    def record_account_payment(
+        self, info: strawberry.Info, input: AccountPaymentInput
+    ) -> PaymentType:
+        ctx = _ctx(info)
+        svc = PaymentService(ctx)
+
+        # Same reasoning as record_payment: a calendar date is anchored at local
+        # midnight in the business's timezone, not UTC.
+        paid_at: datetime | None = None
+        if input.paid_at is not None:
+            paid_at = start_of_day(input.paid_at, svc.get_business().timezone)
+
+        payment = svc.record_to_account(
+            ctx,
+            customer_id=str(input.customer_id),
+            amount=required_decimal(input.amount, "amount"),
+            method=PaymentMethod(input.method),
+            paid_at=paid_at,
+            reference=input.reference,
+            notes=input.notes,
+            receipt_file_id=str(input.receipt_file_id) if input.receipt_file_id else None,
+        )
+        return m.to_payment(ctx.session, payment)
+
+    @strawberry.mutation(
+        description=(
+            "Record one purchase in one call: who, how much, and optionally what. "
+            "The counter path -- no items to itemise, no due date to pick (a purchase "
+            "is not an invoice; the month-end statement carries the obligation). Goes "
+            "through the same service as the full form, so the ledger, aggregates, "
+            "score and audit trail are identical."
+        )
+    )
+    @commits
+    def quick_sale(self, info: strawberry.Info, input: QuickSaleInput) -> CreditType:
+        ctx = _ctx(info)
+        svc = CreditService(ctx)
+        credit = svc.quick_sale(
+            ctx,
+            customer_id=str(input.customer_id),
+            amount=required_decimal(input.amount, "amount"),
+            description=input.description,
+            occurred_on=input.occurred_on,
+        )
+        return m.to_credit(ctx.session, credit, today=_business_today(svc))
+
+    @strawberry.mutation(
+        description=(
+            "Close a period and issue statements. Idempotent -- running it twice "
+            "cannot bill anyone twice. Defaults to last calendar month."
+        )
+    )
+    @commits
+    def close_statement_period(
+        self,
+        info: strawberry.Info,
+        period_start: date | None = None,
+        period_end: date | None = None,
+        customer_id: strawberry.ID | None = None,
+    ) -> ClosePeriodResult:
+        ctx = _ctx(info)
+        svc = StatementService(ctx)
+        svc.require(Permission.SETTINGS_WRITE)
+        result = svc.close_period(
+            period_start=period_start,
+            period_end=period_end,
+            customer_id=str(customer_id) if customer_id else None,
+        )
+        svc.refresh_statuses()
+        return ClosePeriodResult(
+            period_start=result.period_start,
+            period_end=result.period_end,
+            created=result.created,
+            skipped=result.skipped,
+            nothing_to_bill=result.nothing_to_bill,
+            total_billed=str(result.total_billed),
+        )
 
     @strawberry.mutation(
         description="Reverse a payment WITHOUT erasing it. The reason becomes part of the "

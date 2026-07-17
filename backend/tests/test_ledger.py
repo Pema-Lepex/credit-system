@@ -36,6 +36,21 @@ def _buy(ctx, customer, amount: str, *, days_ago: int = 0):
     )
 
 
+def _wipe_ledger(session, customer):
+    """Erase the ledger for a customer, leaving their credits/payments intact.
+
+    Simulates a shop whose history PREDATES the ledger -- which is the only state
+    backfill exists for. Since Stage 2 dual-writes, documents created in a test are
+    already in the ledger, so this is how you get back to the pre-migration world.
+    """
+    for entry in session.exec(select(LedgerEntry).where(LedgerEntry.customer_id == customer.id)).all():
+        session.delete(entry)
+    customer.ledger_balance = D("0")
+    customer.ledger_seq = 0
+    session.add(customer)
+    session.commit()
+
+
 # ---------------------------------------------------------------------------
 # post(): the single door
 # ---------------------------------------------------------------------------
@@ -318,6 +333,7 @@ def test_backfill_reproduces_the_legacy_balance(ctx, session, customer):
     legacy = customer.outstanding_balance
     assert legacy == D("115.00")
 
+    _wipe_ledger(session, customer)  # pretend this history predates the ledger
     entries = LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -340,6 +356,7 @@ def test_backfill_interleaves_charges_and_payments_chronologically(ctx, session,
     _buy(ctx, customer, "50", days_ago=1)
     session.commit()
 
+    _wipe_ledger(session, customer)
     LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -359,6 +376,7 @@ def test_backfill_is_idempotent(ctx, session, customer):
     """A partial run must be safely repeatable."""
     _buy(ctx, customer, "30")
     session.commit()
+    _wipe_ledger(session, customer)
 
     svc = LedgerService(ctx)
     assert svc.backfill_customer(customer.id) == 1
@@ -379,6 +397,7 @@ def test_backfill_ignores_cancelled_credits(ctx, session, customer):
     CreditService(ctx).cancel(ctx, doomed.id, reason="Customer changed their mind")
     session.commit()
 
+    _wipe_ledger(session, customer)
     LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -395,6 +414,7 @@ def test_backfill_ignores_voided_payments(ctx, session, customer):
     PaymentService(ctx).void(ctx, payment.id, reason="Recorded against the wrong customer")
     session.commit()
 
+    _wipe_ledger(session, customer)
     LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -436,6 +456,7 @@ def test_reconcile_reports_an_advance_rather_than_calling_it_drift(ctx, session,
     session.refresh(customer)
     assert customer.outstanding_balance == D("0.00")  # clamped
 
+    _wipe_ledger(session, customer)
     LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -449,8 +470,6 @@ def test_reconcile_reports_an_advance_rather_than_calling_it_drift(ctx, session,
 
 def test_reconcile_flags_a_real_disagreement(ctx, session, customer):
     _buy(ctx, customer, "30")
-    session.commit()
-    LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
     # Corrupt the legacy column: reconcile must not shrug.
@@ -473,6 +492,7 @@ def test_backfill_of_a_realistic_month_reconciles(ctx, session, customer):
         total += amount
     session.commit()
 
+    _wipe_ledger(session, customer)
     entries = LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
@@ -515,8 +535,6 @@ def test_reconcile_only_sees_its_own_business(ctx, session, customer):
     session.commit()
 
     _buy(ctx, customer, "30")
-    session.commit()
-    LedgerService(ctx).backfill_customer(customer.id)
     session.commit()
 
     report = LedgerService(ctx).reconcile()

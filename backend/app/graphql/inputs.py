@@ -348,6 +348,38 @@ class PaymentInput:
     receipt_file_id: strawberry.ID | None = None
 
 
+@strawberry.input(
+    description=(
+        "One purchase, recorded at the counter. `amount` is what they owe for it; "
+        "`description` is free text (\"Rice 5kg\") and may be omitted when there is "
+        "no time to type it."
+    )
+)
+class QuickSaleInput:
+    customer_id: strawberry.ID
+    amount: str
+    description: str | None = None
+    #: Defaults to today. For "I forgot to write down yesterday's tea".
+    occurred_on: date | None = None
+
+
+@strawberry.input(
+    description=(
+        "A payment against the customer's ACCOUNT rather than one credit -- what a "
+        "shop actually takes on salary day. Names no invoice, and never asks which "
+        "purchase is being settled."
+    )
+)
+class AccountPaymentInput:
+    customer_id: strawberry.ID
+    amount: str
+    method: PaymentMethod = PaymentMethod.CASH  # type: ignore[valid-type,assignment]
+    paid_at: date | None = None
+    reference: str | None = None
+    notes: str | None = None
+    receipt_file_id: strawberry.ID | None = None
+
+
 @strawberry.input
 class PaymentFilterInput:
     search: str | None = None

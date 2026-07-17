@@ -1,9 +1,19 @@
 """LedgerService -- the only thing allowed to write the customer account ledger.
 
-This is Stage 1 of the ledger migration: the ledger is built and backfilled
-ALONGSIDE the existing Credit/Payment model, and nothing depends on it yet. That
-is deliberate. ``reconcile`` proves the new model reproduces the old one to the
-cent, against real data, before any write path moves over.
+WHERE THE MIGRATION HAS GOT TO
+------------------------------
+    Stage 1  the ledger is built and BACKFILLED from the existing Credit/Payment
+             rows. ``reconcile`` proves it reproduces the old balances to the cent
+             on real data, before anything depends on it.
+    Stage 2  DUAL-WRITE. Every legacy path that moves money also posts here, so the
+             two models stay in step and ``reconcile`` becomes a continuous check
+             rather than a one-off. ``PaymentService.record_to_account`` lands the
+             actual prize: a payment against the BALANCE, naming no invoice.
+    Stage 3  the ledger becomes readable -- ``list_entries`` (the passbook) and
+             ``customer.ledger_balance`` are what the account screen renders.
+
+The legacy Credit/Payment model still exists and still works. It is not the source
+of truth for money any more; this is.
 
 WHAT THIS SERVICE OWNS (nothing else may write ledger_entry)
 ------------------------------------------------------------
@@ -49,6 +59,7 @@ from app.models.enums import CreditStatus, LedgerEntryType
 from app.models.ledger import LedgerEntry
 from app.models.types import quantize_money
 from app.services.base import BaseService
+from app.utils.pagination import Page, PageInput, paginate
 
 ZERO = Decimal("0")
 
@@ -213,6 +224,26 @@ class LedgerService(BaseService):
         )
         return list(self.session.exec(stmt).all())
 
+    def list_entries(self, customer_id: str, page: PageInput | None = None) -> Page[LedgerEntry]:
+        """The passbook, paginated. What the customer account screen renders.
+
+        Newest first, by seq. A month of a heavy customer is ~400 rows and a year is
+        ~5,000: this is paginated for the same reason every other list here is --
+        the page must not grow with the account's history.
+        """
+        self.require(Permission.CUSTOMER_READ)
+        customer = self.get_scoped(Customer, customer_id, label="Customer")
+        stmt = (
+            select(LedgerEntry)
+            .where(
+                LedgerEntry.business_id == self.scope_id,  # TENANCY BOUNDARY
+                LedgerEntry.customer_id == customer.id,
+                col(LedgerEntry.archived_at).is_(None),
+            )
+            .order_by(col(LedgerEntry.seq).desc())
+        )
+        return paginate(self.session, stmt, page or PageInput())
+
     def derived_balance(self, customer_id: str) -> Decimal:
         """SUM(amount) straight from the ledger -- the slow, authoritative answer.
 
@@ -248,18 +279,25 @@ class LedgerService(BaseService):
     def backfill_customer(self, customer_id: str) -> int:
         """Build one customer's ledger from their existing credits and payments.
 
-        Idempotent: a customer who already has entries is skipped, so a partial run
-        can be repeated safely.
+        IDEMPOTENT PER DOCUMENT, not per customer. A document that already has a
+        ledger entry is skipped, so this is safe to run at any time -- including
+        after dual-writing has started, which is what makes the rollout order not
+        matter. Backfill first or turn dual-write on first; either way you converge
+        on the same balance, and reconcile() proves it.
 
         THE ORDERING RULE. Entries are posted in real chronological order across
         BOTH documents -- a charge on the 3rd, a payment on the 5th, a charge on the
         7th. Posting all credits and then all payments would produce the same final
         balance but a fictional running balance, and the running balance is the whole
         point of a passbook.
+
+        A late backfill posts old events at a high seq. That is not a bug and does
+        not need fixing: occurred_at still says when it happened, seq says when it
+        entered the books, and entering old history late is exactly what a real
+        bookkeeper does. See the two-clock rule in models/ledger.py.
         """
         customer = self.get_scoped(Customer, customer_id, label="Customer")
-        if self._last_entry(customer.id) is not None:
-            return 0
+        posted_credits, posted_payments = self._posted_document_ids(customer.id)
 
         events: list[tuple[datetime, int, Any]] = []
 
@@ -277,6 +315,8 @@ class LedgerService(BaseService):
             )
         ).all()
         for credit in credits:
+            if credit.id in posted_credits:
+                continue  # already in the ledger -- dual-written, or a previous run
             # 0 sorts charges before payments at the same instant: you cannot pay for
             # something before it has been charged.
             events.append((_at(credit.created_at), 0, credit))
@@ -292,6 +332,8 @@ class LedgerService(BaseService):
             )
         ).all()
         for payment in payments:
+            if payment.id in posted_payments:
+                continue
             events.append((_at(payment.paid_at), 1, payment))
 
         events.sort(key=lambda e: (e[0], e[1]))
@@ -383,6 +425,144 @@ class LedgerService(BaseService):
             report.agreed += int(agrees)
 
         return report
+
+    # ============================================================ dual-write
+    # Stage 2: the legacy Credit/Payment paths keep working AND post to the ledger,
+    # so the two models stay in step and reconcile() becomes a continuous check
+    # rather than a one-off. These are the seams CreditService/PaymentService call.
+    #
+    # Every one of them is a no-op when the money did not move, and safe to call
+    # twice -- a write path must never fail because bookkeeping already happened.
+    def entry_for_document(
+        self, *, credit_id: str | None = None, payment_id: str | None = None
+    ) -> LedgerEntry | None:
+        """The original (non-reversal) entry a document posted, if any.
+
+        Returns None for a document that predates the ledger -- which is normal
+        during the migration and must never be an error.
+        """
+        if not credit_id and not payment_id:
+            return None
+        stmt = select(LedgerEntry).where(
+            LedgerEntry.business_id == self.scope_id,  # TENANCY BOUNDARY
+            LedgerEntry.entry_type != LedgerEntryType.REVERSAL,
+        )
+        stmt = (
+            stmt.where(LedgerEntry.credit_id == credit_id)
+            if credit_id
+            else stmt.where(LedgerEntry.payment_id == payment_id)
+        )
+        return self.session.exec(stmt.order_by(col(LedgerEntry.seq).asc())).first()
+
+    def reverse_document(
+        self,
+        *,
+        credit_id: str | None = None,
+        payment_id: str | None = None,
+        memo: str | None = None,
+    ) -> LedgerEntry | None:
+        """Take a document's money back out of the balance. Idempotent.
+
+        Used when a credit is cancelled/trashed or a payment is voided/trashed: the
+        legacy model drops it out of its aggregates, so the ledger must lose it too
+        or the two disagree.
+
+        Returns None -- rather than raising -- when there is nothing to reverse, or
+        when it has already been reversed. Cancelling a credit must not blow up
+        because its ledger entry was already withdrawn.
+        """
+        original = self.entry_for_document(credit_id=credit_id, payment_id=payment_id)
+        if original is None:
+            return None
+        already = self.session.exec(
+            select(LedgerEntry).where(LedgerEntry.reverses_id == original.id)
+        ).first()
+        if already is not None:
+            return None
+        return self.post(
+            customer_id=original.customer_id,
+            entry_type=LedgerEntryType.REVERSAL,
+            amount=-original.amount,
+            reverses_id=original.id,
+            memo=memo,
+        )
+
+    def restate_document(
+        self,
+        *,
+        customer_id: str,
+        entry_type: LedgerEntryType,
+        amount: Decimal,
+        credit_id: str | None = None,
+        payment_id: str | None = None,
+        memo: str | None = None,
+    ) -> LedgerEntry | None:
+        """Put a previously reversed document back into the balance.
+
+        For restore-from-trash. A REVERSAL cannot be un-posted (R1), so coming back
+        is a NEW entry -- which is also the honest account of what happened: it was
+        withdrawn on Tuesday and reinstated on Friday, and both are true.
+
+        No-op if the document is currently live in the ledger, so restore() is safe
+        to call twice.
+        """
+        original = self.entry_for_document(credit_id=credit_id, payment_id=payment_id)
+        if original is not None:
+            reversed_by = self.session.exec(
+                select(LedgerEntry).where(LedgerEntry.reverses_id == original.id)
+            ).first()
+            if reversed_by is None:
+                return None  # still live; nothing to reinstate
+        return self.post(
+            customer_id=customer_id,
+            entry_type=entry_type,
+            amount=amount,
+            credit_id=credit_id,
+            payment_id=payment_id,
+            memo=memo,
+        )
+
+    def adjust_document(
+        self, *, credit_id: str, customer_id: str, new_total: Decimal, memo: str | None = None
+    ) -> LedgerEntry | None:
+        """Post the DELTA after a document's value changed. No-op when it did not.
+
+        Editing a credit's line items moves the legacy balance, so the ledger has to
+        follow. It follows with an ADJUSTMENT for the difference rather than by
+        editing the original CHARGE -- the ledger is append-only (R1), and "the
+        total changed from 900 to 750 on Friday" is more useful to a shopkeeper
+        arguing with a customer than a 750 that was never 900.
+        """
+        live = self._document_balance(credit_id=credit_id)
+        delta = quantize_money(quantize_money(new_total) - live)
+        if delta == ZERO:
+            return None
+        return self.post(
+            customer_id=customer_id,
+            entry_type=LedgerEntryType.ADJUSTMENT,
+            amount=delta,
+            credit_id=credit_id,
+            memo=memo,
+        )
+
+    def _document_balance(self, *, credit_id: str) -> Decimal:
+        """The net the ledger currently carries for one document (charge + reversals
+        + adjustments). What the balance would lose if the document went away."""
+        total = self.session.exec(
+            select(func.coalesce(func.sum(col(LedgerEntry.amount)), 0)).where(
+                LedgerEntry.business_id == self.scope_id,  # TENANCY BOUNDARY
+                LedgerEntry.credit_id == credit_id,
+            )
+        ).one()
+        return quantize_money(Decimal(total or 0))
+
+    def _posted_document_ids(self, customer_id: str) -> tuple[set[str], set[str]]:
+        rows = self.session.exec(
+            select(LedgerEntry.credit_id, LedgerEntry.payment_id).where(
+                LedgerEntry.customer_id == customer_id
+            )
+        ).all()
+        return ({r[0] for r in rows if r[0]}, {r[1] for r in rows if r[1]})
 
     # =============================================================== helpers
     def _lock_customer(self, customer_id: str) -> Customer:

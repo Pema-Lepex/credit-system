@@ -44,6 +44,10 @@ from app.graphql.inputs import (
     to_decimal,
 )
 from app.graphql.types import (
+    LedgerPage,
+    LedgerEntryRow,
+    StatementPage,
+    StatementType,
     ActivityItem,
     AdminBusinessPage,
     AdminBusinessType,
@@ -110,7 +114,9 @@ from app.services.catalog import CategoryService, ProductService, ServiceItemSer
 from app.services.credit import CreditFilter, CreditService
 from app.services.customer import CustomerService
 from app.services.export import ExportService
+from app.services.ledger import LedgerService
 from app.services.notification import NotificationService
+from app.services.statement import StatementService
 from app.services.payment import PaymentFilter, PaymentService
 from app.services.platform import PlatformService, resolve_registration_notice_key
 from app.services.reminder import ReminderService
@@ -444,6 +450,66 @@ class Query:
             items=m.to_payment_rows(ctx.session, result.items),
             page_info=page_info(result),
         )
+
+    # =====================================================================
+    # The customer account ledger
+    # =====================================================================
+    @strawberry.field(
+        description=(
+            "A customer's passbook: every charge, payment and correction against "
+            "their account, newest first, each with the running balance at that "
+            "point. Append-only -- a reversal appears alongside the entry it "
+            "cancels rather than replacing it."
+        )
+    )
+    def customer_ledger(
+        self,
+        info: strawberry.Info,
+        customer_id: strawberry.ID,
+        page: PageInput | None = None,
+    ) -> LedgerPage:
+        ctx = _ctx(info)
+        result = LedgerService(ctx).list_entries(str(customer_id), _page(page))
+        return LedgerPage(
+            items=[m.to_ledger_entry(e) for e in result.items],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field(
+        description=(
+            "Monthly statements, newest first. ONE per customer per month -- the "
+            "document that carries the due date, replacing four hundred per-purchase "
+            "ones."
+        )
+    )
+    def statements(
+        self,
+        info: strawberry.Info,
+        customer_id: strawberry.ID | None = None,
+        page: PageInput | None = None,
+    ) -> StatementPage:
+        ctx = _ctx(info)
+        result = StatementService(ctx).list(
+            customer_id=str(customer_id) if customer_id else None, page=_page(page)
+        )
+        return StatementPage(
+            items=[m.to_statement(ctx.session, s) for s in result.items],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field(description="One statement.")
+    def statement(self, info: strawberry.Info, id: strawberry.ID) -> StatementType:
+        ctx = _ctx(info)
+        return m.to_statement(ctx.session, StatementService(ctx).get(str(id)))
+
+    @strawberry.field(
+        description="The ledger lines a statement covers -- the detail behind its total."
+    )
+    def statement_entries(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> list[LedgerEntryRow]:
+        ctx = _ctx(info)
+        return [m.to_ledger_entry(e) for e in StatementService(ctx).entries_for(str(id))]
 
     # =====================================================================
     # Trash (deleted credits + payments). Admin-only -- the services require

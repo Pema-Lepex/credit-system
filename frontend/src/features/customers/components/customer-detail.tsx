@@ -40,6 +40,7 @@ import type { ID, Money } from "@/types";
 
 import { useCustomer, useCustomerScore } from "../queries";
 import { CreditScorePanel } from "./credit-score";
+import { CustomerAccountTab } from "@/features/ledger/components/customer-account-tab";
 import { CustomerCreditsTab } from "./customer-credits-tab";
 import { CustomerPaymentsTab } from "./customer-payments-tab";
 
@@ -47,7 +48,7 @@ export function CustomerDetail({ id }: { id: ID }) {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const currency = useCurrency();
-  const [tab, setTab] = useState("credits");
+  const [tab, setTab] = useState("account");
 
   const { data: customer, isLoading, error } = useCustomer(id);
   const { data: score, isLoading: scoreLoading } = useCustomerScore(id);
@@ -204,12 +205,23 @@ export function CustomerDetail({ id }: { id: ID }) {
             payments table would push this column past the viewport instead of
             letting its own TableContainer scroll. This lets it shrink and scroll. */}
         <div className="min-w-0 lg:col-span-2">
-          <Tabs value={tab} defaultValue="credits" onValueChange={setTab}>
+          <Tabs value={tab} defaultValue="account" onValueChange={setTab}>
             <TabsList>
+              {/* First, and the default: what they owe is the question the shopkeeper
+                  actually has. The credit list is the detail behind it. */}
+              <TabsTrigger value="account">Account</TabsTrigger>
               <TabsTrigger value="credits">Credits ({customer.creditCount})</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="notes">Notes</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="account">
+              <CustomerAccountTab
+                customerId={customer.id}
+                customerName={customer.name}
+                balance={customer.ledgerBalance}
+              />
+            </TabsContent>
 
             <TabsContent value="credits">
               <CustomerCreditsTab customerId={customer.id} />

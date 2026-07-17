@@ -141,6 +141,15 @@ class Business(BaseEntity, table=True):
     # with nothing but an env var.
     w3forms_access_key: str | None = Field(default=None, max_length=255)
 
+    # --- Statement cycle ----------------------------------------------------
+    #: Whether month-end statements are generated at all. Off by default: a shop
+    #: that has not opted in must not suddenly start billing its customers on a
+    #: cycle nobody agreed to.
+    statements_enabled: bool = Field(default=False)
+    #: Days after the period closes that the statement falls due. 10 => July's
+    #: statement is due on 10 August -- enough room for salary to land.
+    statement_due_days: int = Field(default=10)
+
     # --- Retention / storage ------------------------------------------------
     retention_policy: RetentionPolicy = Field(default=RetentionPolicy.DAYS_30, max_length=16)
     retention_notifications_enabled: bool = Field(default=True)

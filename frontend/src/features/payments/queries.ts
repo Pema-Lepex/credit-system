@@ -31,7 +31,8 @@ export interface PaymentFilterInput {
 export interface PaymentRow {
   id: ID;
   number: string;
-  creditId: ID;
+  /** NULL for an account payment — one that pays the balance without naming a credit. */
+  creditId: ID | null;
   customerId: ID;
   customerName: string | null;
   creditNumber: string | null;

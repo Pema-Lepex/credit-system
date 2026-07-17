@@ -48,7 +48,10 @@ export interface CustomerRecord {
   creditLimit: Money | null;
   totalCredit: Money;
   totalPaid: Money;
+  /** Legacy: max(0, credits - payments). Clamped, so an advance is invisible here. */
   outstandingBalance: Money;
+  /** What the account ledger says they owe. NOT clamped — negative = paid ahead. */
+  ledgerBalance: Money;
   creditCount: number;
   overdueCount: number;
   lastCreditAt: ISODateTime | null;
@@ -154,6 +157,7 @@ const CUSTOMER_FIELDS = /* GraphQL */ `
     totalCredit
     totalPaid
     outstandingBalance
+    ledgerBalance
     creditCount
     overdueCount
     lastCreditAt

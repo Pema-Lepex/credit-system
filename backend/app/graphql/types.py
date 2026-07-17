@@ -54,6 +54,8 @@ CreditStatus = strawberry.enum(enums.CreditStatus)
 CustomerStatus = strawberry.enum(enums.CustomerStatus)
 PaymentMethod = strawberry.enum(enums.PaymentMethod)
 ItemKind = strawberry.enum(enums.ItemKind)
+LedgerEntryType = strawberry.enum(enums.LedgerEntryType)
+StatementStatus = strawberry.enum(enums.StatementStatus)
 ReminderChannel = strawberry.enum(enums.ReminderChannel)
 ReminderAudience = strawberry.enum(enums.ReminderAudience)
 ReminderStatus = strawberry.enum(enums.ReminderStatus)
@@ -305,7 +307,12 @@ class CustomerType:
 
     total_credit: str
     total_paid: str
+    #: The legacy figure: max(0, credits - payments). CLAMPED, so an advance is
+    #: invisible here. Kept while both models coexist.
     outstanding_balance: str
+    #: What the account ledger says they owe. NOT clamped: negative means the shop
+    #: is holding an advance. This is the number the balance screen shows.
+    ledger_balance: str
     credit_count: int
     overdue_count: int
     last_credit_at: datetime | None
@@ -412,7 +419,12 @@ class CreditItemType:
 class PaymentType:
     id: strawberry.ID
     number: str
-    credit_id: strawberry.ID
+    #: NULL for an ACCOUNT payment -- one that pays down the customer's balance
+    #: without naming an invoice (PaymentService.record_to_account). Non-null on the
+    #: legacy per-credit path. Nullable since Payment.credit_id became nullable; a
+    #: non-null field here made the whole payments list 500 the moment it contained
+    #: one account payment.
+    credit_id: strawberry.ID | None
     customer_id: strawberry.ID
     customer_name: str | None
     credit_number: str | None
@@ -432,6 +444,58 @@ class PaymentType:
 @strawberry.type
 class PaymentPage:
     items: list[PaymentType]
+    page_info: PageInfo
+
+
+@strawberry.type(
+    description=(
+        "One customer's account for one month: opening + charges - payments = "
+        "closing. A SNAPSHOT of the ledger, not an invoice -- nothing is ever "
+        "allocated to it, and it settles when the account balance says so."
+    )
+)
+class StatementType:
+    id: strawberry.ID
+    number: str
+    customer_id: strawberry.ID
+    customer_name: str | None
+    period_start: date
+    period_end: date
+    opening_balance: str
+    charges: str
+    #: POSITIVE. A statement reads "you paid 5,710", never "-5,710".
+    payments: str
+    closing_balance: str
+    entry_count: int
+    #: THE due date -- the only one in the system a customer actually agreed to.
+    due_date: date
+    status: StatementStatus  # type: ignore[valid-type]
+    issued_at: datetime | None
+    settled_at: datetime | None
+    created_at: datetime
+
+
+@strawberry.type
+class StatementPage:
+    items: list[StatementType]
+    page_info: PageInfo
+
+
+@strawberry.type
+class ClosePeriodResult:
+    period_start: date
+    period_end: date
+    created: int
+    skipped: int
+    nothing_to_bill: int
+    total_billed: str
+
+
+@strawberry.type
+class LedgerPage:
+    """A page of the passbook, newest first."""
+
+    items: list[LedgerEntryRow]
     page_info: PageInfo
 
 
@@ -691,6 +755,33 @@ class StorageUsage:
     service_count: int
     image_count: int
     export_count: int
+
+
+@strawberry.type(
+    description=(
+        "One movement on a customer's account. Append-only: nothing here is ever "
+        "edited or deleted, and a correction is a REVERSAL entry alongside the "
+        "original. See backend/app/models/ledger.py."
+    )
+)
+class LedgerEntryRow:
+    id: strawberry.ID
+    #: Posting order. The running balance follows THIS, not occurredAt -- which is
+    #: why the passbook must be sorted by it.
+    seq: int
+    entry_type: LedgerEntryType  # type: ignore[valid-type]
+    #: SIGNED money-as-string: positive increases what they owe, negative reduces it.
+    amount: str
+    balance_after: str
+    #: When it happened in the world. May be earlier than the posting -- back-dating
+    #: is normal, not an error.
+    occurred_at: datetime
+    posted_at: datetime
+    memo: str | None
+    credit_id: strawberry.ID | None
+    payment_id: strawberry.ID | None
+    #: Set when this entry cancels an earlier one.
+    reverses_id: strawberry.ID | None
 
 
 @strawberry.type
