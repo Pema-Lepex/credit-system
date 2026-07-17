@@ -761,8 +761,11 @@ So binaries move over REST, and **GraphQL carries the identifiers**. Upload retu
 file id; you attach that id to a credit with a GraphQL mutation. Each protocol does what
 it is good at.
 
-All five require `Authorization: Bearer <token>` **except** `GET /api/files/{key}` — see
-the note below.
+Bulk import is here for the same reason: a spreadsheet is a binary going in, and a
+template is a binary coming out.
+
+Every route requires `Authorization: Bearer <token>` **except** `GET /api/files/{key}` —
+see the note below.
 
 ### `POST /api/upload`
 
@@ -852,6 +855,79 @@ Requires `storage:maintain`.
 Uses SQLite's **online backup API**, not a file copy — copying a live database file gives
 you a torn snapshot that opens fine and then fails an integrity check. Returns a clear
 `VALIDATION_ERROR` on Postgres/Turso, where your provider owns backups.
+
+### Bulk import
+
+For a shop arriving with years of history in a spreadsheet. Two datasets:
+`customers` and `credits`.
+
+**The rule: all-or-nothing.** A sheet is validated in full and then written in full, or
+nothing is written at all. A partial import is the worst possible outcome — the owner
+cannot tell which rows landed, and re-uploading duplicates the ones that did.
+
+#### `GET /api/imports/{dataset}/template?format=xlsx|csv`
+
+A blank sheet with the correct headings. `xlsx` (default) also carries a per-column
+comment on each heading, a dropdown on enum columns, and an **Instructions** sheet
+describing every column with an example.
+
+The template deliberately contains **no example data rows**. Ship a sample row telling
+people to delete it and they will not, and then "Sonam Dorji" is a real customer in
+their database. The examples live where they cannot be imported.
+
+Generated per request, never stored.
+
+#### `GET /api/imports/{dataset}/fields`
+
+The same column spec as JSON — `{key, label, required, help, example, choices}` — so the
+UI's field guide is generated from the rules the validator actually enforces, rather than
+a hardcoded copy that drifts.
+
+#### `POST /api/imports/{dataset}?dry_run=true`
+
+`multipart/form-data` with a `file` field (`.xlsx` or `.csv`, ≤ 5 MB, ≤ 2000 rows).
+
+**`dry_run` defaults to `true`.** A client that forgets the parameter gets a preview, not
+several hundred unasked-for customers. Pass `dry_run=false` to write.
+
+```bash
+# 1. Preview — writes nothing
+curl -X POST "http://localhost:8000/api/imports/customers" \
+  -H "Authorization: Bearer $TOKEN" -F "file=@customers.xlsx"
+
+# 2. Import for real
+curl -X POST "http://localhost:8000/api/imports/customers?dry_run=false" \
+  -H "Authorization: Bearer $TOKEN" -F "file=@customers.xlsx"
+```
+
+```json
+{
+  "dataset": "customers", "dryRun": true, "totalRows": 3, "created": 0, "ok": false,
+  "errors":   [{ "row": 4, "column": "name", "message": "name is required and this row leaves it blank." }],
+  "warnings": [{ "row": 2, "column": "phone", "message": "Dorji Wangchuk (CUST-0001) already has this phone number…" }]
+}
+```
+
+`row` is the row number **as Excel shows it** — the header is row 1, so data starts at 2.
+Errors block the import; warnings (likely duplicates, ignored columns) do not.
+
+Note the two failure modes:
+
+- a bad **row** → `200` with `ok: false` and a report. It is an answer, not a failure.
+- a bad **file** (wrong headings, too big, unreadable) → `4xx` with the error shape below.
+  There is no report to render.
+
+**Permissions:** `customer:write` for `customers`, `credit:write` for `credits`.
+
+**Credits import notes.** One row is one credit with one line item. Each row must name an
+existing customer via `customer_code` (or `customer_phone`, if it matches exactly one) —
+import customers first; a credit sheet will not invent them. Dates must be `YYYY-MM-DD`:
+`08/07/2026` is refused rather than guessed, because it is two different dates depending
+on where you live.
+
+Rows are written through the ordinary `CustomerService` / `CreditService`, so every
+invariant the web form maintains — credit totals, customer aggregates, credit score,
+stock, the audit trail — holds for imported data too.
 
 ### REST error shape
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, PlusCircle, RefreshCw, SearchX } from "lucide-react";
+import { CreditCard, PlusCircle, RefreshCw, SearchX, Upload } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -79,10 +79,19 @@ export function CreditsView() {
         description="Every credit you have written, and exactly what is still owed on it."
         actions={
           canWrite ? (
-            <Link href="/credits/new" className={cn(buttonVariants({ variant: "primary" }))}>
-              <PlusCircle aria-hidden="true" className="size-4" />
-              New credit
-            </Link>
+            <>
+              <Link
+                href="/credits/import"
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                <Upload aria-hidden="true" className="size-4" />
+                Import
+              </Link>
+              <Link href="/credits/new" className={cn(buttonVariants({ variant: "primary" }))}>
+                <PlusCircle aria-hidden="true" className="size-4" />
+                New credit
+              </Link>
+            </>
           ) : null
         }
       />

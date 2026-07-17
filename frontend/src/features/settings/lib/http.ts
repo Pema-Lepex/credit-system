@@ -27,8 +27,13 @@ export class HttpError extends Error {
   }
 }
 
-/** Backend `detail` is either a string or FastAPI's validation-error array. */
-async function messageFromResponse(response: Response, fallback: string): Promise<string> {
+/**
+ * Backend `detail` is either a string or FastAPI's validation-error array.
+ *
+ * Exported for the other features that talk to the binary API (reports, imports)
+ * so there is one place that knows how FastAPI shapes an error body.
+ */
+export async function messageFromResponse(response: Response, fallback: string): Promise<string> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object" && "detail" in body) {
@@ -44,8 +49,13 @@ async function messageFromResponse(response: Response, fallback: string): Promis
 /**
  * Run an authenticated fetch, refreshing the access token once on a 401.
  * The callback receives the current token so the retry sends the NEW one.
+ *
+ * Exported: this refresh-and-retry dance must exist exactly once. A second copy
+ * would race the first for the refresh token and rotate it out from under it.
  */
-async function authedFetch(run: (token: string | null) => Promise<Response>): Promise<Response> {
+export async function authedFetch(
+  run: (token: string | null) => Promise<Response>,
+): Promise<Response> {
   let response = await run(getAccessToken());
   if (response.status !== 401) return response;
 

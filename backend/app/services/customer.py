@@ -125,7 +125,19 @@ class CustomerService(BaseService):
         return paginate(self.session, stmt, page or PageInput())
 
     # -- write ---------------------------------------------------------------
-    def create(self, name: str, **fields: Any) -> Customer:
+    def build(self, name: str, **fields: Any) -> Customer:
+        """Create a customer WITHOUT committing. The caller owns the transaction.
+
+        Split out of ``create`` for the bulk importer, which turns one spreadsheet
+        into hundreds of customers and must land them as a single all-or-nothing
+        batch -- a per-row commit would leave half a failed import behind, and would
+        make the shopkeeper hunt for which rows made it in.
+
+        Safe to call in a loop: ``next_customer_code`` derives the sequence with a
+        MAX(...)+1 read, and SQLAlchemy's autoflush means each pending Customer is
+        visible to the next call's query. So codes stay sequential without a commit
+        between them.
+        """
         self.require(Permission.CUSTOMER_WRITE)
         business_id = self.scope_id
 
@@ -154,6 +166,10 @@ class CustomerService(BaseService):
             customer.id,
             f"Customer {customer.code} ({customer.name}) created",
         )
+        return customer
+
+    def create(self, name: str, **fields: Any) -> Customer:
+        customer = self.build(name, **fields)
         self.session.commit()
         self.session.refresh(customer)
         return customer

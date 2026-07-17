@@ -22,6 +22,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from app.api.cron import router as cron_router
 from app.api.files import router as files_router
+from app.api.imports import router as imports_router
 from app.core.config import Environment, settings
 from app.core.errors import AppError
 from app.db.bootstrap import ensure_super_admin
@@ -111,6 +112,9 @@ graphql_router: GraphQLRouter = GraphQLRouter(
 )
 app.include_router(graphql_router, prefix=settings.GRAPHQL_PATH)
 app.include_router(files_router, prefix=settings.API_PREFIX)
+# Bulk import: spreadsheets in, templates out. REST for the same reason files are
+# -- see app/api/imports.py.
+app.include_router(imports_router, prefix=settings.API_PREFIX)
 # External cron trigger. Needed because APScheduler dies with the process on a
 # scale-to-zero host -- see app/api/cron.py.
 app.include_router(cron_router, prefix=settings.API_PREFIX)
