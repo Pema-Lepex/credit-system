@@ -295,6 +295,21 @@ class StorageStatsService(BaseService):
         # freeze the shop mid-sale -- never do that from a scheduled job).
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.exec_driver_sql("VACUUM")
+
+            # THE CHECKPOINT IS NOT OPTIONAL -- IT IS WHAT MAKES THE FILE SHRINK.
+            #
+            # Under WAL (see db/session.py) VACUUM rewrites the database *into the
+            # write-ahead log*. The main file does not shrink at all until the WAL is
+            # folded back into it, so measuring here without checkpointing measures
+            # the old main file PLUS a now-enormous -wal, and reports the database
+            # growing -- "1.5 MB -> 2.5 MB (0 B reclaimed)" -- immediately after the
+            # one operation whose entire purpose is to make it smaller.
+            #
+            # TRUNCATE (not PASSIVE) also resets the -wal to zero bytes, so the space
+            # is genuinely returned to the filesystem rather than left reserved.
+            if not self._is_postgres():
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+
         after = self._database_bytes()
         freed = max(0, before - after)
 

@@ -12,9 +12,20 @@ node_modules/
 out/
 
 # Environment -- NEVER commit secrets
+#
+# The patterns below are deliberately broad. The narrow ones (.env, .env.local)
+# only ever matched a file named EXACTLY that, so a real secrets file downloaded
+# from a host -- credit-system-1.env, fly-prod.env, .env.production -- sailed
+# straight past them and would have been committed by the next `git add -A`.
+# A leaked key stays in the history after you delete the file, so this errs
+# toward ignoring too much: an env file that SHOULD be shared can always be
+# force-added with `git add -f`.
 .env
 .env.local
 .env*.local
+*.env
+.env.*
+# ...except the committed template, which carries keys with no values.
 !.env.example
 
 # User data, not source

@@ -53,8 +53,13 @@ import { cn, formatBytes, formatNumber } from "@/lib/utils";
 
 export function StorageDashboard() {
   const { data, isLoading, isError, error } = useStorageUsage();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canMaintain = hasPermission("storage:maintain");
+
+  // Usage and per-business maintenance are tenant-scoped; a SUPER_ADMIN has no
+  // business of their own, so those calls fail for them by design. The database
+  // backup is NOT tenant-scoped — it is the whole file — so it must stay reachable.
+  const hasBusiness = Boolean(user?.businessId);
 
   if (isLoading) {
     return (
@@ -65,22 +70,37 @@ export function StorageDashboard() {
     );
   }
 
-  if (isError || !data) {
-    return (
-      <Alert variant="destructive" title="Could not load your storage usage">
-        {error instanceof Error ? error.message : "Please try again."}
-      </Alert>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <QuotaCard usage={data} />
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-        <BreakdownCard usage={data} />
-        <CountsCard usage={data} />
-      </div>
-      <MaintenanceCard canMaintain={canMaintain} />
+      {isError || !data ? (
+        // Deliberately NOT an early return. The maintenance card below holds the
+        // only route to a database backup, and hiding it whenever the usage query
+        // fails means the one tool you need when something is wrong disappears
+        // exactly when something is wrong.
+        <Alert
+          variant={hasBusiness ? "destructive" : "neutral"}
+          title={
+            hasBusiness
+              ? "Could not load your storage usage"
+              : "No business selected"
+          }
+        >
+          {hasBusiness
+            ? error instanceof Error
+              ? error.message
+              : "Please try again."
+            : "You are signed in as a super administrator, who is not attached to a business. Per-business figures and cleanup tools need one — the database backup below covers the whole system and works regardless."}
+        </Alert>
+      ) : (
+        <>
+          <QuotaCard usage={data} />
+          <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+            <BreakdownCard usage={data} />
+            <CountsCard usage={data} />
+          </div>
+        </>
+      )}
+      <MaintenanceCard canMaintain={canMaintain} hasBusiness={hasBusiness} />
     </div>
   );
 }
@@ -361,7 +381,14 @@ function CountsCard({ usage }: { usage: StorageUsage }) {
 // ---------------------------------------------------------------------------
 // Maintenance
 // ---------------------------------------------------------------------------
-function MaintenanceCard({ canMaintain }: { canMaintain: boolean }) {
+function MaintenanceCard({
+  canMaintain,
+  hasBusiness,
+}: {
+  canMaintain: boolean;
+  /** Maintenance operates on one business's data; the backup does not. */
+  hasBusiness: boolean;
+}) {
   const runMaintenance = useRunMaintenance();
   const [pending, setPending] = useState<MaintenanceAction | null>(null);
   const [isBackingUp, setBackingUp] = useState(false);
@@ -423,6 +450,12 @@ function MaintenanceCard({ canMaintain }: { canMaintain: boolean }) {
           <Alert variant="neutral">
             Your role can view storage usage but not run maintenance or download a backup.
           </Alert>
+        ) : !hasBusiness ? (
+          <Alert variant="neutral">
+            The cleanup tools below work on one business&apos;s data, and your super-admin
+            account is not attached to one — so they are unavailable here. Downloading a
+            backup still works: it covers the entire database.
+          </Alert>
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -453,7 +486,7 @@ function MaintenanceCard({ canMaintain }: { canMaintain: boolean }) {
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                disabled={!canMaintain || running !== null}
+                disabled={!canMaintain || !hasBusiness || running !== null}
                 isLoading={running === action.operation}
                 onClick={() => (action.destructive ? setPending(action) : void run(action))}
               >
