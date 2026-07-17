@@ -33,7 +33,7 @@ from app.models.customer import Customer
 from app.models.enums import AuditAction, CreditStatus, LedgerEntryType, PaymentMethod
 from app.models.types import quantize_money
 from app.services.base import BaseService, ServiceContext
-from app.services.credit import CreditService
+from app.services.credit import CreditService, apply_settlement
 from app.services.customer import recompute_aggregates, recompute_credit_score
 from app.services.ledger import LedgerService
 from app.storage.service import StorageService
@@ -493,5 +493,14 @@ class PaymentService(BaseService):
 
     # ---------------------------------------------------------------- helpers
     def _sync_customer(self, customer_id: str) -> None:
+        """The same three steps, in the same order, as CreditService._sync_customer.
+
+        A payment is the whole reason settlement moves: recording, voiding or
+        trashing one changes which credits are covered, and apply_settlement is what
+        makes the Credits list agree with the Account balance.
+        """
+        apply_settlement(
+            self.session, customer_id, today=today_in(self.get_business().timezone)
+        )
         recompute_aggregates(self.session, customer_id)
         recompute_credit_score(self.session, customer_id)

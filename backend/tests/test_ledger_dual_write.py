@@ -19,7 +19,7 @@ from sqlmodel import select
 
 from app.core.errors import ConflictError, ValidationError
 from app.models.credit import Payment
-from app.models.enums import LedgerEntryType, PaymentMethod
+from app.models.enums import CreditStatus, LedgerEntryType, PaymentMethod
 from app.models.ledger import LedgerEntry
 from app.services.credit import CreditItemInput, CreditService
 from app.services.ledger import LedgerService
@@ -390,13 +390,13 @@ def test_legacy_per_credit_payments_still_refuse_overpayment(ctx, session, custo
         PaymentService(ctx).record(ctx, credit_id=credit.id, amount=D("500"))
 
 
-def test_an_account_payment_leaves_the_credits_alone(ctx, session, customer):
-    """The transitional truth, stated plainly.
+def test_an_account_payment_settles_the_credits_it_covers(ctx, session, customer):
+    """This test used to assert the opposite, and the opposite was a bug.
 
-    An account payment pays the BALANCE, so the individual credits keep their own
-    remaining_amount and stay PENDING. That is expected while both models exist --
-    the customer's balance is right, and per-credit settlement is exactly the
-    fiction the ledger exists to retire.
+    An account payment names no credit -- but the credits it covers must still show
+    as settled, or the Credits list says a customer owes money the Account tab says
+    they do not. Both were reading real columns; the columns disagreed. See
+    apply_settlement.
     """
     credit = _buy(ctx, customer, "100")
     session.commit()
@@ -405,10 +405,15 @@ def test_an_account_payment_leaves_the_credits_alone(ctx, session, customer):
     session.commit()
 
     session.refresh(credit)
-    assert credit.remaining_amount == D("100.00")  # untouched
+    assert credit.amount_paid == D("100.00")
+    assert credit.remaining_amount == D("0.00")
+    assert CreditStatus(credit.status) is CreditStatus.PAID
+    assert credit.paid_at is not None
+
     session.refresh(customer)
-    assert customer.ledger_balance == D("0.00")  # but they owe nothing
+    assert customer.ledger_balance == D("0.00")
     assert customer.outstanding_balance == D("0.00")
+    _assert_in_step(ctx, session, customer)
 
 
 def test_account_payments_appear_in_the_customers_payment_list(ctx, session, customer):

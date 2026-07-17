@@ -3,14 +3,29 @@
 INVARIANTS THIS SERVICE OWNS (nothing else may write these columns)
 -------------------------------------------------------------------
     I1  grand_total    == subtotal - discount_amount + tax_amount
-    I2  amount_paid    == SUM(non-voided payments on this credit)
+    I2  amount_paid    == payments AIMED at this credit, plus its FIFO share of the
+                          customer's account payments  (see apply_settlement)
     I3  remaining      == grand_total - amount_paid,  clamped at >= 0
     I4  status         is a pure function of (remaining, paid, due_date, cancelled)
     I5  customer aggregates and credit score reflect I2/I3 after every change
 
-Any code path that changes money MUST go through ``recalculate()``, which restores
-all five together. That is the whole trick: there is exactly one function that can
-compute a total, so there is exactly one place a rounding bug can live.
+I2 USED TO SAY "SUM of this credit's own payments", AND THAT WAS THE BUG
+------------------------------------------------------------------------
+A payment against the ACCOUNT names no credit -- that is the point of it, and why a
+shopkeeper settles four hundred purchases with one tap. But under the old I2 those
+credits kept their full balance and stayed PENDING, so the Credits list insisted a
+customer owed money the Account tab said they did not. Both read real columns; the
+columns disagreed.
+
+Now a credit's paid figure is decided by ``apply_settlement`` for the customer as a
+whole: aimed payments stick where they were aimed, and everything else fills the
+oldest credits first. It is a pure function of the payments and the credits -- no
+allocation table, nothing to keep in step, and re-runnable at any time.
+
+Any code path that changes money MUST go through ``recalculate()`` (one credit) or
+``apply_settlement()`` (the customer). Both route through ``settle_credit`` for the
+arithmetic, so there is exactly one place a rounding bug can live -- and
+``_sync_customer`` is the single seam every write path already calls.
 
 WHY TOTALS ARE STORED, NOT COMPUTED ON READ
 --------------------------------------------
@@ -50,6 +65,122 @@ from app.utils.pagination import Page, PageInput, paginate
 ZERO = Decimal("0")
 
 
+def apply_settlement(
+    session: Any, customer_id: str, *, today: date | None = None
+) -> list[Credit]:
+    """Decide how much of a customer's money has landed on each of their credits.
+
+    THE PROBLEM THIS SOLVES
+    -----------------------
+    A payment against the ACCOUNT (PaymentService.record_to_account) names no
+    credit -- that is the entire point of it, and why a shopkeeper can settle four
+    hundred purchases with one tap. But it left every one of those credits sitting
+    at PENDING with its original balance, so the Credits list said a customer owed
+    money the Account tab said they did not. Both were reading real columns; the
+    columns disagreed.
+
+    THE RULE, in the order a shopkeeper would explain it:
+
+      1. A payment made against ONE credit belongs to that credit. The shopkeeper
+         pointed at it; we do not know better. This is the "optionally choose which
+         credit" case, and it wins.
+      2. Whatever is left over -- every account payment -- fills the remaining
+         credits OLDEST FIRST. Nobody has to decide anything.
+
+    So Nu.150 against two Nu.100 credits settles the first in full and leaves the
+    second Nu.50 short, which is what a person would do with cash on a counter.
+
+    A PURE FUNCTION OF THE DATA
+    ---------------------------
+    Nothing is stored about the allocation -- no allocation table, no payment ->
+    credit links to maintain. Run this twice and nothing changes; run it after any
+    write and it is right. That is what keeps the whole system consistent: there is
+    no second record of "who paid what" that can drift from the payments themselves.
+
+    It also means a voided payment, an edited credit or a back-dated purchase all
+    re-settle correctly with no special case -- they change the inputs, and the
+    answer is recomputed from scratch.
+
+    Returns the credits it touched, newest allocation first. Does not commit.
+    """
+    from app.models.customer import Customer
+
+    customer = session.get(Customer, customer_id)
+    if customer is None:
+        return []
+
+    credits = list(
+        session.exec(
+            select(Credit)
+            .where(
+                Credit.business_id == customer.business_id,  # TENANCY BOUNDARY
+                Credit.customer_id == customer_id,
+                col(Credit.deleted_at).is_(None),
+                col(Credit.archived_at).is_(None),
+                # A cancelled credit never happened -- it takes no money.
+                Credit.status != CreditStatus.CANCELLED,
+            )
+            # FIFO. issued_date is the shopkeeper's truth; created_at and id break
+            # ties so the order is total and stable -- two purchases on the same day
+            # must not swap places between runs and shuffle which one reads as paid.
+            .order_by(
+                col(Credit.issued_date).asc(),
+                col(Credit.created_at).asc(),
+                col(Credit.id).asc(),
+            )
+        ).all()
+    )
+    if not credits:
+        return []
+
+    direct, pool = _payment_pools(session, customer)
+
+    touched: list[Credit] = []
+    for credit in credits:
+        # Rule 1: money the shopkeeper aimed at this credit.
+        aimed = quantize_money(direct.get(credit.id, ZERO))
+        # Rule 2: top it up from the shared pool, oldest credit first.
+        shortfall = max(ZERO, quantize_money(credit.grand_total - aimed))
+        take = min(shortfall, pool)
+        pool = quantize_money(pool - take)
+
+        settle_credit(credit, today=today, allocated=aimed + take)
+        session.add(credit)
+        touched.append(credit)
+
+    session.flush()
+    return touched
+
+
+def _payment_pools(session: Any, customer: Any) -> tuple[dict[str, Decimal], Decimal]:
+    """({credit_id: aimed money}, unaimed money).
+
+    Voided and soft-deleted payments are excluded, exactly as recalculate excludes
+    them -- the two must agree or a trashed payment would settle a credit that the
+    balance says is still owed.
+    """
+    from app.models.credit import Payment
+
+    payments = session.exec(
+        select(Payment).where(
+            Payment.business_id == customer.business_id,  # TENANCY BOUNDARY
+            Payment.customer_id == customer.id,
+            col(Payment.deleted_at).is_(None),
+            col(Payment.archived_at).is_(None),
+            col(Payment.voided_at).is_(None),
+        )
+    ).all()
+
+    direct: dict[str, Decimal] = {}
+    pool = ZERO
+    for payment in payments:
+        if payment.credit_id:
+            direct[payment.credit_id] = direct.get(payment.credit_id, ZERO) + payment.amount
+        else:
+            pool += payment.amount
+    return direct, quantize_money(pool)
+
+
 @dataclass(slots=True)
 class CreditItemInput:
     name: str
@@ -77,6 +208,94 @@ class CreditFilter:
     max_amount: Decimal | None = None
     overdue_only: bool = False
     include_archived: bool = False
+
+
+def settle_credit(
+    credit: Credit, *, today: date | None = None, allocated: Decimal | None = None
+) -> Credit:
+    """Restore I1-I4 on one credit. Pure: no session, no I/O, no commit.
+
+    THE single implementation of "what does this credit's money look like". Both
+    CreditService.recalculate and apply_settlement route through it, which is what
+    makes a rounding or status bug have exactly one place to live.
+    """
+    # -- I1: totals from the lines -------------------------------------
+    subtotal = ZERO
+    item_discount = ZERO
+    item_tax = ZERO
+    for item in credit.items:
+        CreditService.compute_item_totals(item)
+        subtotal += item.line_subtotal
+        item_discount += quantize_money(item.discount_amount or ZERO)
+        item_tax += item.tax_amount
+
+    subtotal = quantize_money(subtotal)
+
+    # Credit-level percentages stack on top of the per-line amounts. Applied to
+    # the post-line-discount base so a 10% "whole invoice" discount doesn't
+    # accidentally discount a line twice.
+    base_after_item_discounts = subtotal - item_discount
+    credit_discount = ZERO
+    if credit.discount_percentage:
+        credit_discount = quantize_money(
+            base_after_item_discounts * Decimal(credit.discount_percentage) / Decimal("100")
+        )
+
+    total_discount = quantize_money(item_discount + credit_discount)
+    if total_discount > subtotal:
+        raise ValidationError("Total discount exceeds the credit subtotal", field="discount")
+
+    credit_tax = ZERO
+    if credit.tax_percentage:
+        taxable = subtotal - total_discount
+        credit_tax = quantize_money(taxable * Decimal(credit.tax_percentage) / Decimal("100"))
+
+    credit.subtotal = subtotal
+    credit.discount_amount = total_discount
+    credit.tax_amount = quantize_money(item_tax + credit_tax)
+    credit.grand_total = quantize_money(subtotal - total_discount + credit.tax_amount)
+
+    # -- I2: paid ---------------------------------------------------------
+    # ``allocated`` is supplied by apply_settlement, which is the only thing that
+    # can answer this properly: a payment made against the ACCOUNT names no
+    # credit, so how much of it landed here is a FIFO question about the
+    # customer's whole history, not a fact this credit's own payment list knows.
+    #
+    # Falling back to the direct sum keeps every caller that only wants I1/I3/I4
+    # working, and is exactly right for a credit that only has direct payments.
+    # Soft-deleted and voided payments never count -- that is what makes "send a
+    # payment to Trash" return its amount to the balance, and "restore" put it back.
+    paid = (
+        quantize_money(allocated)
+        if allocated is not None
+        else quantize_money(
+            sum(
+                (
+                    p.amount
+                    for p in credit.payments
+                    if p.voided_at is None and p.deleted_at is None
+                ),
+                ZERO,
+            )
+        )
+    )
+    credit.amount_paid = paid
+
+    # -- I3: remaining, never negative ----------------------------------
+    # An overpayment is clamped to 0 remaining rather than stored as negative:
+    # a negative "remaining" would flow into the receivables total and quietly
+    # understate what every OTHER customer owes. Overpayment is prevented at the
+    # payment door (see PaymentService), so this clamp is a belt-and-braces.
+    credit.remaining_amount = max(ZERO, quantize_money(credit.grand_total - paid))
+
+    # -- I4: status ------------------------------------------------------
+    credit.status = CreditService._derive_status(credit, today=today)
+    if credit.status is CreditStatus.PAID and credit.paid_at is None:
+        credit.paid_at = utcnow()
+    elif credit.status is not CreditStatus.PAID:
+        credit.paid_at = None
+
+    return credit
 
 
 class CreditService(BaseService):
@@ -108,79 +327,28 @@ class CreditService(BaseService):
         item.tax_amount = tax
         item.line_total = quantize_money(taxable + tax)
 
-    def recalculate(self, credit: Credit, *, today: date | None = None) -> Credit:
+    def recalculate(
+        self, credit: Credit, *, today: date | None = None, allocated: Decimal | None = None
+    ) -> Credit:
         """Restore invariants I1-I4 from the credit's items and payments.
 
         Idempotent by construction -- calling it twice changes nothing. That matters
         because it is invoked from create, update, payment, void, and the nightly
         integrity job, and none of them should have to reason about ordering.
+
+        ``allocated`` overrides I2 with a figure only ``apply_settlement`` can know
+        (see its docstring). Callers that leave it None get the old behaviour: paid
+        == the sum of this credit's own payments.
+
+        The arithmetic itself lives in the module-level ``settle_credit`` so that
+        ``apply_settlement`` -- which has no ServiceContext and therefore no
+        CreditService -- restores the SAME invariants rather than a second copy of
+        them that could drift.
         """
-        # -- I1: totals from the lines -------------------------------------
-        subtotal = ZERO
-        item_discount = ZERO
-        item_tax = ZERO
-        for item in credit.items:
-            self.compute_item_totals(item)
-            subtotal += item.line_subtotal
-            item_discount += quantize_money(item.discount_amount or ZERO)
-            item_tax += item.tax_amount
-
-        subtotal = quantize_money(subtotal)
-
-        # Credit-level percentages stack on top of the per-line amounts. Applied to
-        # the post-line-discount base so a 10% "whole invoice" discount doesn't
-        # accidentally discount a line twice.
-        base_after_item_discounts = subtotal - item_discount
-        credit_discount = ZERO
-        if credit.discount_percentage:
-            credit_discount = quantize_money(
-                base_after_item_discounts * Decimal(credit.discount_percentage) / Decimal("100")
-            )
-
-        total_discount = quantize_money(item_discount + credit_discount)
-        if total_discount > subtotal:
-            raise ValidationError("Total discount exceeds the credit subtotal", field="discount")
-
-        credit_tax = ZERO
-        if credit.tax_percentage:
-            taxable = subtotal - total_discount
-            credit_tax = quantize_money(taxable * Decimal(credit.tax_percentage) / Decimal("100"))
-
-        credit.subtotal = subtotal
-        credit.discount_amount = total_discount
-        credit.tax_amount = quantize_money(item_tax + credit_tax)
-        credit.grand_total = quantize_money(subtotal - total_discount + credit.tax_amount)
-
-        # -- I2: paid, from the ledger (voided AND soft-deleted do not count) --
-        # Soft-deleted payments (in the Trash) must not count toward what has been
-        # paid -- otherwise deleting a payment would leave the credit's balance wrong
-        # until a hard delete. Excluding deleted_at here is what makes "send a payment
-        # to Trash" correctly return its amount to the outstanding balance, and what
-        # makes "restore" put it back.
-        paid = quantize_money(
-            sum(
-                (p.amount for p in credit.payments if p.voided_at is None and p.deleted_at is None),
-                ZERO,
-            )
-        )
-        credit.amount_paid = paid
-
-        # -- I3: remaining, never negative ----------------------------------
-        # An overpayment is clamped to 0 remaining rather than stored as negative:
-        # a negative "remaining" would flow into the receivables total and quietly
-        # understate what every OTHER customer owes. Overpayment is prevented at the
-        # payment door (see PaymentService), so this clamp is a belt-and-braces.
-        credit.remaining_amount = max(ZERO, quantize_money(credit.grand_total - paid))
-
-        # -- I4: status ------------------------------------------------------
-        credit.status = self._derive_status(credit, today=today)
-        if credit.status is CreditStatus.PAID and credit.paid_at is None:
-            credit.paid_at = utcnow()
-        elif credit.status is not CreditStatus.PAID:
-            credit.paid_at = None
-
+        settle_credit(credit, today=today, allocated=allocated)
         self.session.add(credit)
         return credit
+
 
     @staticmethod
     def _derive_status(credit: Credit, *, today: date | None = None) -> CreditStatus:
@@ -543,18 +711,26 @@ class CreditService(BaseService):
     def cancel(self, ctx: ServiceContext, credit_id: str, reason: str | None = None) -> Credit:
         """Cancel a credit. Refused once money has changed hands.
 
-        A credit with payments against it has a financial history; erasing it with a
+        A credit with payments AIMED at it has a financial history; erasing it with a
         status flip would leave those payments pointing at a cancelled parent and
         silently corrupt the customer's balance. Void the payments first -- an
         explicit, audited act -- and only then cancel.
+
+        The guard asks about AIMED payments, not ``amount_paid``. Since settlement
+        became FIFO (see apply_settlement), amount_paid can be positive purely
+        because an account payment happened to land here -- money nobody attached to
+        this credit and which simply flows to the next one when this is cancelled.
+        Refusing on that would block a shopkeeper from voiding a mis-rung sale for a
+        reason they could neither see nor act on.
         """
         self.require(Permission.CREDIT_WRITE)
         credit = self.get(credit_id)
 
-        if credit.amount_paid > ZERO:
+        aimed = self._aimed_at(credit)
+        if aimed > ZERO:
             raise ConflictError(
-                f"Credit {credit.number} has {credit.amount_paid} paid against it. "
-                "Void the payments before cancelling."
+                f"Credit {credit.number} has {aimed} paid directly against it. "
+                "Void those payments before cancelling."
             )
 
         credit.status = CreditStatus.CANCELLED
@@ -578,7 +754,8 @@ class CreditService(BaseService):
     def soft_delete(self, ctx: ServiceContext, credit_id: str) -> Credit:
         self.require(Permission.CREDIT_DELETE)
         credit = self.get(credit_id)
-        if credit.amount_paid > ZERO:
+        # AIMED payments only -- see cancel() for why amount_paid is the wrong test.
+        if self._aimed_at(credit) > ZERO:
             raise ConflictError(
                 "This credit has payments recorded against it and cannot be deleted. "
                 "Cancel it instead, so the payment history survives."
@@ -865,10 +1042,45 @@ class CreditService(BaseService):
         self.assert_in_scope(customer.business_id)
         return customer
 
+    @staticmethod
+    def _aimed_at(credit: Credit) -> Decimal:
+        """Money a shopkeeper attached to THIS credit by name.
+
+        The counterpart to apply_settlement's rule 1. Distinct from
+        ``credit.amount_paid``, which since FIFO also includes whatever share of the
+        customer's account payments happens to have flowed here.
+        """
+        return quantize_money(
+            sum(
+                (
+                    p.amount
+                    for p in credit.payments
+                    if p.voided_at is None and p.deleted_at is None
+                ),
+                ZERO,
+            )
+        )
+
     def _sync_customer(self, customer_id: str) -> None:
-        """I5. Aggregates and score always follow the money."""
+        """I5. Per-credit settlement, then the roll-ups. Order matters.
+
+        apply_settlement decides each credit's amount_paid/remaining/status;
+        recompute_aggregates then rolls those up (overdue_count reads the statuses
+        this just set). Running them the other way round would count yesterday's
+        overdue credits.
+
+        This is the ONE seam every money path already goes through -- create, update,
+        cancel, trash, restore, payment, void -- which is why settlement cannot be
+        forgotten by a new write path.
+        """
+        apply_settlement(self.session, customer_id, today=self._today())
         recompute_aggregates(self.session, customer_id)
         recompute_credit_score(self.session, customer_id)
+
+    def _today(self) -> date:
+        """Today where the SHOP is. A credit falls overdue on the shopkeeper's
+        calendar, not the server's."""
+        return today_in(self.get_business().timezone)
 
     def _cancel_pending_reminders(self, credit_id: str) -> None:
         from app.models.communication import ScheduledReminder

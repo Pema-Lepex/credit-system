@@ -18,9 +18,10 @@ import {
 } from "@/features/settings/lib/http";
 import { customerKeys } from "@/features/customers/queries";
 import { creditKeys } from "@/features/credits/queries";
+import { catalogKeys } from "@/features/catalog/queries";
 
-/** The two things a spreadsheet can become. Mirrors DATASETS in the import service. */
-export type ImportDataset = "customers" | "credits";
+/** What a spreadsheet can become. Mirrors DATASETS in the import service. */
+export type ImportDataset = "customers" | "credits" | "products" | "services";
 
 export type TemplateFormat = "xlsx" | "csv";
 
@@ -160,9 +161,17 @@ export function useCommitImport(dataset: ImportDataset) {
     mutationFn: (file: File) => postSheet(dataset, file, false),
     onSuccess: (report) => {
       if (report.created === 0) return;
-      void queryClient.invalidateQueries({ queryKey: customerKeys.all });
-      if (dataset === "credits") {
-        void queryClient.invalidateQueries({ queryKey: creditKeys.all });
+      // What each dataset touches. A products import also creates the categories
+      // its sheet names, so those go stale too — miss that and the new products
+      // show up with an empty category column until a reload.
+      const keys: Record<ImportDataset, readonly (readonly unknown[])[]> = {
+        customers: [customerKeys.all],
+        credits: [creditKeys.all, customerKeys.all],
+        products: [catalogKeys.products, catalogKeys.categories],
+        services: [catalogKeys.services, catalogKeys.categories],
+      };
+      for (const key of keys[dataset]) {
+        void queryClient.invalidateQueries({ queryKey: key });
       }
     },
   });

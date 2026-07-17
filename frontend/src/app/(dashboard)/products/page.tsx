@@ -1,10 +1,11 @@
-import { PackagePlus } from "lucide-react";
+import { PackagePlus, Upload } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { SkeletonTable, buttonVariants } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { ProductListView } from "@/features/catalog/components/product-list-view";
 
 export const metadata: Metadata = { title: "Products" };
@@ -16,10 +17,19 @@ export default function Page() {
         title="Products"
         description="The goods you sell on credit."
         actions={
-          <Link href="/products/new" className={buttonVariants()}>
-            <PackagePlus />
-            New product
-          </Link>
+          <>
+            <Link
+              href="/products/import"
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              <Upload />
+              Import
+            </Link>
+            <Link href="/products/new" className={buttonVariants()}>
+              <PackagePlus />
+              New product
+            </Link>
+          </>
         }
       />
 

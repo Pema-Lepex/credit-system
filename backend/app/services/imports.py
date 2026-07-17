@@ -54,6 +54,7 @@ from app.core.security import Permission
 from app.models.customer import Customer
 from app.models.enums import AuditAction, CustomerStatus, ItemKind
 from app.services.base import BaseService, ServiceContext
+from app.services.catalog import CategoryService, ProductService, ServiceItemService
 from app.services.credit import CreditItemInput, CreditService
 from app.services.customer import CustomerService
 from app.utils.dates import today_in
@@ -65,6 +66,8 @@ MAX_IMPORT_ROWS = 2000
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
 
 _XLSX_MAGIC = b"PK\x03\x04"  # xlsx is a zip archive
+
+ZERO_MONEY = Decimal("0")
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +238,130 @@ CREDIT_COLUMNS: tuple[Column, ...] = (
 )
 
 
+PRODUCT_COLUMNS: tuple[Column, ...] = (
+    Column(
+        "name",
+        "Name",
+        required=True,
+        help="What you call it on the shelf. The only column you must fill in.",
+        example="Rice 5kg",
+    ),
+    Column(
+        "price",
+        "Selling price",
+        help="What you charge the customer for one unit. Blank means 0.",
+        example="450.00",
+    ),
+    Column(
+        "unit",
+        "Unit",
+        help="pcs, kg, litre, box... Blank means pcs.",
+        example="kg",
+    ),
+    Column(
+        "category",
+        "Category",
+        help=(
+            "A group like Groceries or Drinks. Type the name -- if it does not exist "
+            "yet it will be created for you."
+        ),
+        example="Groceries",
+    ),
+    Column(
+        "sku",
+        "SKU",
+        help="Your own code for it. Must be unique in your shop; leave blank if you don't use one.",
+        example="RICE-5KG",
+    ),
+    Column(
+        "barcode",
+        "Barcode",
+        help="The number under the barcode. Must be unique in your shop.",
+        example="8901234567890",
+    ),
+    Column(
+        "cost_price",
+        "Cost price",
+        help="What YOU paid for one unit. Used for profit reports; never shown to a customer.",
+        example="380.00",
+    ),
+    Column(
+        "stock_quantity",
+        "Stock on hand",
+        help="How many you have right now. Up to 3 decimals. Blank means 0.",
+        example="24",
+    ),
+    Column(
+        "low_stock_threshold",
+        "Low stock alert at",
+        help="Warn you when stock drops to this. Blank means no warning.",
+        example="5",
+    ),
+    Column(
+        "tax_percentage",
+        "Tax %",
+        help="0 to 100. Blank uses your business tax rate from Settings.",
+        example="0",
+    ),
+    Column(
+        "is_active",
+        "Active",
+        help="YES or NO. Blank means YES. NO hides it from the sale screen without deleting it.",
+        example="YES",
+        choices=("YES", "NO"),
+    ),
+    Column("description", "Description", example="Local red rice, 5kg bag"),
+)
+
+SERVICE_COLUMNS: tuple[Column, ...] = (
+    Column(
+        "name",
+        "Name",
+        required=True,
+        help="What the customer asks for. The only column you must fill in.",
+        example="Puncture repair",
+    ),
+    Column(
+        "price",
+        "Price",
+        help="What you charge for it. Blank means 0.",
+        example="150.00",
+    ),
+    Column(
+        "category",
+        "Category",
+        help="A group like Repairs. Type the name -- it is created if it does not exist.",
+        example="Repairs",
+    ),
+    Column(
+        "code",
+        "Code",
+        help="Your own short code. Must be unique in your shop; blank if you don't use one.",
+        example="SVC-PUNC",
+    ),
+    Column(
+        "duration_minutes",
+        "How long it takes (minutes)",
+        help="Whole minutes. Blank if it varies.",
+        example="30",
+    ),
+    Column(
+        "tax_percentage",
+        "Tax %",
+        help="0 to 100. Blank uses your business tax rate from Settings.",
+        example="0",
+    ),
+    Column(
+        "is_active",
+        "Active",
+        help="YES or NO. Blank means YES. NO hides it without deleting it.",
+        example="YES",
+        choices=("YES", "NO"),
+    ),
+    Column("description", "Description", example="Includes tube patch and refit"),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DatasetSpec:
     name: str
@@ -260,6 +387,26 @@ DATASETS: dict[str, DatasetSpec] = {
         intro=(
             "One row for each credit record. Import your customers first -- every "
             "row has to point at a customer who already exists."
+        ),
+    ),
+    "products": DatasetSpec(
+        name="products",
+        title="Products",
+        columns=PRODUCT_COLUMNS,
+        permission=Permission.CATALOG_WRITE,
+        intro=(
+            "One row for each thing you sell. Only Name is required. Categories are "
+            "created for you as they appear."
+        ),
+    ),
+    "services": DatasetSpec(
+        name="services",
+        title="Services",
+        columns=SERVICE_COLUMNS,
+        permission=Permission.CATALOG_WRITE,
+        intro=(
+            "One row for each service you offer. Only Name is required. Categories "
+            "are created for you as they appear."
         ),
     ),
 }
@@ -504,7 +651,7 @@ class ImportService(BaseService):
 
         # Pass 1: validate every row into a ready-to-write payload.
         prepared: list[tuple[int, dict[str, Any]]] = []
-        validate = self._validate_customer if spec.name == "customers" else self._validate_credit
+        validate = _VALIDATORS[spec.name].__get__(self)
         context = self._build_context(spec)
         for line, raw in rows:
             before = len(report.errors)
@@ -542,22 +689,30 @@ class ImportService(BaseService):
     def _commit(
         self, ctx: ServiceContext, spec: DatasetSpec, prepared: list[tuple[int, dict[str, Any]]]
     ) -> int:
-        """Write every prepared row through the normal services (R2). No commit here."""
-        if spec.name == "customers":
-            service = CustomerService(self.ctx)
-            for line, payload in prepared:
-                try:
-                    service.build(**payload)
-                except AppError as exc:
-                    exc._import_row = line  # type: ignore[attr-defined]
-                    raise
-            return len(prepared)
+        """Write every prepared row through the normal services (R2). No commit here.
 
-        credits = CreditService(self.ctx)
+        Each branch calls the SAME service the web form calls -- ``build`` where the
+        service would otherwise commit per row (which would break R1), ``create``
+        where it already leaves the transaction to its caller.
+        """
+        writers: dict[str, Any] = {
+            "customers": lambda line, payload: CustomerService(self.ctx).build(**payload),
+            "credits": lambda line, payload: CreditService(self.ctx).create(ctx, **payload),
+            "products": lambda line, payload: ProductService(self.ctx).build(**payload),
+            "services": lambda line, payload: ServiceItemService(self.ctx).build(**payload),
+        }
+        write = writers[spec.name]
+
+        # Categories are created HERE, not during validation -- a dry run must not
+        # write. Done before the rows so every payload has a real category_id.
+        if spec.name in ("products", "services"):
+            self._apply_categories(prepared)
+
         for line, payload in prepared:
             try:
-                credits.create(ctx, **payload)
+                write(line, payload)
             except AppError as exc:
+                # Tag the row so run() can report WHICH line the service refused.
                 exc._import_row = line  # type: ignore[attr-defined]
                 raise
         return len(prepared)
@@ -694,6 +849,35 @@ class ImportService(BaseService):
         if spec.name == "customers":
             return {}
 
+        if spec.name in ("products", "services"):
+            from app.models.catalog import Product, Service
+
+            def taken(model: Any, field: str) -> dict[str, str]:
+                """{code: the name using it} -- so the error can say WHICH product
+                already owns the SKU, rather than just "duplicate"."""
+                rows = self.session.exec(
+                    select(model).where(
+                        model.business_id == self.scope_id,  # TENANCY BOUNDARY
+                        col(model.deleted_at).is_(None),
+                    )
+                ).all()
+                return {
+                    getattr(r, field).strip().lower(): r.name
+                    for r in rows
+                    if getattr(r, field)
+                }
+
+            return {
+                "codes": {
+                    "sku": taken(Product, "sku"),
+                    "barcode": taken(Product, "barcode"),
+                    "code": taken(Service, "code"),
+                },
+                # Codes claimed by earlier ROWS of this same file: {code: line}. The
+                # database cannot see these -- they are all still in flight.
+                "seen": {"sku": {}, "barcode": {}, "code": {}},
+            }
+
         customers = list(
             self.session.exec(
                 select(Customer).where(
@@ -762,6 +946,137 @@ class ImportService(BaseService):
                     )
                 )
         return payload
+
+    # -- validation: products / services -------------------------------------
+    def _validate_product(
+        self, line: int, raw: dict[str, str], report: ImportReport, ctx: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        get = _reader(line, raw, report)
+
+        name = get.text("name", max_length=200, required=True)
+        if not name:
+            return None
+
+        payload: dict[str, Any] = {"name": name}
+        payload["price"] = get.money("price") or ZERO_MONEY
+        payload["cost_price"] = get.money("cost_price")
+        payload["unit"] = get.text("unit", max_length=20) or "pcs"
+        payload["description"] = get.text("description", max_length=2000)
+        payload["sku"] = self._unique_code(line, get, ctx, field="sku", label="SKU")
+        payload["barcode"] = self._unique_code(line, get, ctx, field="barcode", label="barcode")
+        payload["stock_quantity"] = get.quantity("stock_quantity", allow_zero=True) or ZERO_MONEY
+        payload["low_stock_threshold"] = get.quantity("low_stock_threshold", allow_zero=True)
+        payload["tax_percentage"] = get.percent("tax_percentage")
+        payload["is_active"] = get.yes_no("is_active", default=True)
+        payload["category_name"] = self._resolve_category(get, ctx)
+        return payload
+
+    def _validate_service(
+        self, line: int, raw: dict[str, str], report: ImportReport, ctx: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        get = _reader(line, raw, report)
+
+        name = get.text("name", max_length=200, required=True)
+        if not name:
+            return None
+
+        payload: dict[str, Any] = {"name": name}
+        payload["price"] = get.money("price") or ZERO_MONEY
+        payload["description"] = get.text("description", max_length=2000)
+        payload["code"] = self._unique_code(line, get, ctx, field="code", label="code")
+        payload["duration_minutes"] = get.whole_number("duration_minutes")
+        payload["tax_percentage"] = get.percent("tax_percentage")
+        payload["is_active"] = get.yes_no("is_active", default=True)
+        payload["category_name"] = self._resolve_category(get, ctx)
+        return payload
+
+    def _unique_code(
+        self, line: int, get: "_Reader", ctx: dict[str, Any], *, field: str, label: str
+    ) -> str | None:
+        """SKU / barcode / service code: unique per business, INCLUDING within the file.
+
+        The service checks the database. It cannot see that rows 4 and 40 of THIS
+        sheet both say RICE-5KG -- they are both still in flight. Catching it here
+        means the owner sees both line numbers at once, instead of the batch aborting
+        on row 40 with a message about row 4.
+        """
+        value = get.text(field, max_length=64)
+        if not value:
+            return None
+
+        existing = ctx["codes"][field].get(value.lower())
+        if existing is not None:
+            get.report.errors.append(
+                RowIssue(
+                    line,
+                    field,
+                    f"{label} '{value}' is already used by '{existing}'. Every {label} "
+                    f"has to be unique in your shop -- change it or leave it blank.",
+                )
+            )
+            return None
+
+        seen = ctx["seen"][field]
+        if value.lower() in seen:
+            get.report.errors.append(
+                RowIssue(
+                    line,
+                    field,
+                    f"{label} '{value}' is used twice in this file -- also on row "
+                    f"{seen[value.lower()]}. Every {label} has to be unique.",
+                )
+            )
+            return None
+        seen[value.lower()] = line
+        return value
+
+    @staticmethod
+    def _resolve_category(get: "_Reader", ctx: dict[str, Any]) -> str | None:
+        """The category NAME, for _commit to resolve. Reads only -- never writes.
+
+        Categories missing from the sheet are created on demand, DELIBERATELY unlike
+        the credits import, which refuses a customer it has not seen. The asymmetry
+        is the point: inventing a customer invents a person who owes money, so it
+        must be deliberate. A category is a label on a shelf -- it carries no money
+        and no identity, and making the shopkeeper hand-create ten of them before
+        their first import buys nothing.
+
+        But the CREATION happens in _commit, not here. Validators are pure (see the
+        module docstring): creating a category during a dry run would write to a
+        database the caller was promised nothing would be written to.
+        """
+        return get.text("category", max_length=120)
+
+    def _apply_categories(self, prepared: list[tuple[int, dict[str, Any]]]) -> None:
+        """Turn each row's category NAME into an id, creating the missing ones.
+
+        Runs inside _commit, once the batch is known to be good. Names are matched
+        case-insensitively so "Groceries" and "groceries" on two rows do not produce
+        two categories.
+        """
+        categories = self._category_index()
+        service = CategoryService(self.ctx)
+
+        for _line, payload in prepared:
+            name = payload.pop("category_name", None)
+            if not name:
+                payload["category_id"] = None
+                continue
+            key = name.strip().lower()
+            if key not in categories:
+                categories[key] = service.build(name.strip()).id
+            payload["category_id"] = categories[key]
+
+    def _category_index(self) -> dict[str, str]:
+        from app.models.catalog import Category
+
+        rows = self.session.exec(
+            select(Category).where(
+                Category.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(Category.deleted_at).is_(None),
+            )
+        ).all()
+        return {c.name.strip().lower(): c.id for c in rows}
 
     # -- validation: credits -------------------------------------------------
     def _validate_credit(
@@ -937,6 +1252,17 @@ class ImportService(BaseService):
 # ---------------------------------------------------------------------------
 # Cell readers -- each one records a friendly error and returns None on bad input
 # ---------------------------------------------------------------------------
+#: dataset -> the validator that turns one row into a ready-to-write payload.
+#: A dict rather than an if/elif chain: adding a dataset is a spec plus a function,
+#: and get_spec already rejects any name that is not in DATASETS.
+_VALIDATORS = {
+    "customers": ImportService._validate_customer,
+    "credits": ImportService._validate_credit,
+    "products": ImportService._validate_product,
+    "services": ImportService._validate_service,
+}
+
+
 def _reader(line: int, raw: dict[str, str], report: ImportReport) -> "_Reader":
     return _Reader(line, raw, report)
 
@@ -1015,7 +1341,9 @@ class _Reader:
             return None
         return amount
 
-    def quantity(self, column: str) -> Decimal | None:
+    def quantity(self, column: str, *, allow_zero: bool = False) -> Decimal | None:
+        """A count. ``allow_zero`` for stock levels -- "I have none left" is a fact,
+        whereas selling someone zero of something is a typo."""
         value = _strip_money(self._cell(column))
         if not value:
             return None
@@ -1026,10 +1354,45 @@ class _Reader:
             )
             return None
         amount = Decimal(value)
-        if amount <= 0:
-            self._fail(column, "Quantity has to be more than zero.")
+        if amount < 0 or (amount == 0 and not allow_zero):
+            self._fail(
+                column,
+                "Quantity has to be zero or more."
+                if allow_zero
+                else "Quantity has to be more than zero.",
+            )
             return None
         return amount
+
+    def whole_number(self, column: str) -> int | None:
+        value = _strip_money(self._cell(column))
+        if not value:
+            return None
+        try:
+            number = int(Decimal(value))
+        except (InvalidOperation, ValueError):
+            self._fail(column, f"'{self._cell(column)}' is not a whole number, like 30.")
+            return None
+        if number < 0:
+            self._fail(column, f"{column} cannot be negative.")
+            return None
+        return number
+
+    def yes_no(self, column: str, *, default: bool) -> bool:
+        """YES/NO, and every spelling of it a real sheet contains.
+
+        Excel turns a checkbox into TRUE, a human types y, and an export writes 1.
+        All three mean the same thing, and refusing them would be pedantry.
+        """
+        value = self._cell(column).strip().lower()
+        if not value:
+            return default
+        if value in ("yes", "y", "true", "1", "active"):
+            return True
+        if value in ("no", "n", "false", "0", "inactive"):
+            return False
+        self._fail(column, f"'{self._cell(column)}' is not clear. Write YES or NO.")
+        return default
 
     def percent(self, column: str) -> Decimal | None:
         value = _strip_money(self._cell(column)).rstrip("%")

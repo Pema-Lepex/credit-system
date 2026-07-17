@@ -130,7 +130,14 @@ class CategoryService(BaseService):
         stmt = stmt.order_by(col(Category.name).asc())
         return paginate(self.session, stmt, page or PageInput())
 
+    def build(self, name: str, **fields: Any) -> Category:
+        """Create a category WITHOUT committing. See ProductService.build."""
+        return self._create(name, commit=False, **fields)
+
     def create(self, name: str, **fields: Any) -> Category:
+        return self._create(name, commit=True, **fields)
+
+    def _create(self, name: str, *, commit: bool, **fields: Any) -> Category:
         self.require(Permission.CATALOG_WRITE)
         business_id = self.scope_id
 
@@ -145,8 +152,9 @@ class CategoryService(BaseService):
         self.session.flush()
 
         self.audit(AuditAction.CREATE, "category", category.id, f"Category '{name}' created")
-        self.session.commit()
-        self.session.refresh(category)
+        if commit:
+            self.session.commit()
+            self.session.refresh(category)
         return category
 
     def update(self, category_id: str, **fields: Any) -> Category:
@@ -281,7 +289,16 @@ class ProductService(BaseService):
         stmt = stmt.order_by(col(column).desc() if sort_desc else col(column).asc())
         return paginate(self.session, stmt, page or PageInput())
 
-    def create(self, name: str, **fields: Any) -> Product:
+    def build(self, name: str, **fields: Any) -> Product:
+        """Create a product WITHOUT committing. The caller owns the transaction.
+
+        Split out of ``create`` for the bulk importer, which turns one spreadsheet
+        into hundreds of products and must land them as a single all-or-nothing
+        batch. A per-row commit would leave half a failed import behind, and the SKU
+        uniqueness check below only sees the rest of the batch because they share
+        this transaction (autoflush) -- with per-row commits, two rows carrying the
+        same SKU would both succeed.
+        """
         self.require(Permission.CATALOG_WRITE)
         business_id = self.scope_id
 
@@ -304,6 +321,10 @@ class ProductService(BaseService):
         self.storage.attach_many(image_ids)
 
         self.audit(AuditAction.CREATE, "product", product.id, f"Product '{name}' created")
+        return product
+
+    def create(self, name: str, **fields: Any) -> Product:
+        product = self.build(name, **fields)
         self.session.commit()
         self.session.refresh(product)
         return product
@@ -532,7 +553,8 @@ class ServiceItemService(BaseService):
         stmt = stmt.order_by(col(column).desc() if sort_desc else col(column).asc())
         return paginate(self.session, stmt, page or PageInput())
 
-    def create(self, name: str, **fields: Any) -> Service:
+    def build(self, name: str, **fields: Any) -> Service:
+        """Create a service WITHOUT committing. See ProductService.build for why."""
         self.require(Permission.CATALOG_WRITE)
         business_id = self.scope_id
 
@@ -551,6 +573,10 @@ class ServiceItemService(BaseService):
         self.session.flush()
 
         self.audit(AuditAction.CREATE, "service", service.id, f"Service '{name}' created")
+        return service
+
+    def create(self, name: str, **fields: Any) -> Service:
+        service = self.build(name, **fields)
         self.session.commit()
         self.session.refresh(service)
         return service

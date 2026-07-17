@@ -45,6 +45,7 @@ import {
 } from "@/features/imports/api";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn, formatNumber } from "@/lib/utils";
+import type { Permission } from "@/types";
 
 const ACCEPTED = ".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -58,6 +59,8 @@ interface ImportViewProps {
 const COPY: Record<ImportDataset, { title: string; backHref: string; backLabel: string }> = {
   customers: { title: "Import customers", backHref: "/customers", backLabel: "Customers" },
   credits: { title: "Import credits", backHref: "/credits", backLabel: "Credits" },
+  products: { title: "Import products", backHref: "/products", backLabel: "Products" },
+  services: { title: "Import services", backHref: "/services", backLabel: "Services" },
 };
 
 export function ImportView({ dataset }: ImportViewProps) {
@@ -66,7 +69,7 @@ export function ImportView({ dataset }: ImportViewProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { hasPermission } = useAuth();
-  const canImport = hasPermission(dataset === "customers" ? "customer:write" : "credit:write");
+  const canImport = hasPermission(PERMISSION[dataset]);
 
   const fields = useImportFields(dataset);
   const preview = usePreviewImport(dataset);
@@ -169,9 +172,23 @@ export function ImportView({ dataset }: ImportViewProps) {
   );
 }
 
+/** The permission each dataset writes with — mirrors DatasetSpec.permission. */
+const PERMISSION: Record<ImportDataset, Permission> = {
+  customers: "customer:write",
+  credits: "credit:write",
+  products: "catalog:write",
+  services: "catalog:write",
+};
+
+const NOUN: Record<ImportDataset, [singular: string, plural: string]> = {
+  customers: ["customer", "customers"],
+  credits: ["credit record", "credit records"],
+  products: ["product", "products"],
+  services: ["service", "services"],
+};
+
 function rowNoun(dataset: ImportDataset, plural = false): string {
-  if (dataset === "customers") return plural ? "customers" : "customer";
-  return plural ? "credit records" : "credit record";
+  return NOUN[dataset][plural ? 1 : 0];
 }
 
 // ---------------------------------------------------------------------------
@@ -439,12 +456,12 @@ function SuccessPanel({
             {report.created === 1 ? rowNoun(dataset) : rowNoun(dataset, true)}
           </h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            They are in your {dataset === "customers" ? "customer list" : "credit list"} now.
+            They are in your {rowNoun(dataset, true)} now.
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
-          <Link href={dataset === "customers" ? "/customers" : "/credits"}>
-            <Button>View {dataset === "customers" ? "customers" : "credits"}</Button>
+          <Link href={COPY[dataset].backHref}>
+            <Button>View {rowNoun(dataset, true)}</Button>
           </Link>
           <Button variant="secondary" onClick={onReset}>
             Import another sheet
