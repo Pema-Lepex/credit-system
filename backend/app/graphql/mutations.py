@@ -71,6 +71,7 @@ from app.graphql.types import (
     EmailTemplateKind,
     ExportJobType,
     MaintenanceResult,
+    WhatsAppLinkType,
     MessagePayload,
     NotificationType,
     PaymentType,
@@ -921,6 +922,31 @@ class Mutation:
     def cancel_reminder(self, info: strawberry.Info, id: strawberry.ID) -> ScheduledReminderType:
         ctx = _ctx(info)
         return m.to_reminder(ReminderService(ctx).cancel(ctx, str(id)))
+
+    @strawberry.mutation(
+        description=(
+            "Compose a WhatsApp reminder for one credit and return a click-to-chat "
+            "link. Sends NOTHING -- the owner opens the link and taps Send in "
+            "WhatsApp. Fails if the customer's phone has no country code."
+        )
+    )
+    @commits
+    def compose_whatsapp_reminder(
+        self, info: strawberry.Info, credit_id: strawberry.ID
+    ) -> WhatsAppLinkType:
+        # A mutation, not a query, for one reason: it writes an audit row ("reminder
+        # composed for X"), and only mutations commit here. A query with a side
+        # effect that silently never persists is worse than no audit trail at all.
+        from app.services.whatsapp import WhatsAppService
+
+        ctx = _ctx(info)
+        link = WhatsAppService(ctx).reminder_link(str(credit_id))
+        return WhatsAppLinkType(
+            url=link.url,
+            text=link.text,
+            to_phone=link.to_phone,
+            customer_name=link.customer_name,
+        )
 
     # =====================================================================
     # Email templates

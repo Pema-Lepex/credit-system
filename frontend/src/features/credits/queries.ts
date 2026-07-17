@@ -374,6 +374,31 @@ export const SEND_REMINDER_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * Composes a WhatsApp reminder and hands back a wa.me link. Sends nothing — the
+ * owner opens the link and taps Send themselves. See backend/app/services/whatsapp.py.
+ */
+export const COMPOSE_WHATSAPP_REMINDER_MUTATION = /* GraphQL */ `
+  mutation ComposeWhatsappReminder($creditId: ID!) {
+    composeWhatsappReminder(creditId: $creditId) {
+      url
+      text
+      toPhone
+      customerName
+    }
+  }
+`;
+
+export interface WhatsAppLink {
+  /** The wa.me URL to open. */
+  url: string;
+  /** The message as plain text, so the owner can read it before WhatsApp opens. */
+  text: string;
+  /** E.164 digits, no '+'. */
+  toPhone: string;
+  customerName: string;
+}
+
 // ---------------------------------------------------------------------------
 // Supporting lookups — the customer picker and the catalog picker.
 // These read other domains, but the *documents* are ours; nothing is shared.

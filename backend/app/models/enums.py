@@ -114,6 +114,20 @@ class ReminderStatus(str, Enum):
 
 
 class EmailTemplateKind(str, Enum):
+    """The owner-editable message templates.
+
+    The WHATSAPP_* kinds are not email, despite the enum's name -- they are carried
+    by app/services/whatsapp.py into a click-to-chat link. They live here anyway,
+    and that is deliberate: it means a shop owner edits their WhatsApp wording in
+    the same admin screen, with the same {{variables}}, as everything else. The
+    alternative -- a second, parallel template system for one channel -- buys
+    nothing but a second place for the copy to rot.
+
+    They are separate kinds rather than a reuse of REMINDER because the email copy
+    says "reply to this email" and runs to several paragraphs: right in an inbox,
+    wrong in a chat window.
+    """
+
     REMINDER = "REMINDER"
     RECEIPT = "RECEIPT"
     PAYMENT_CONFIRMATION = "PAYMENT_CONFIRMATION"
@@ -121,6 +135,8 @@ class EmailTemplateKind(str, Enum):
     ADMIN_NOTIFICATION = "ADMIN_NOTIFICATION"
     OVERDUE_NOTICE = "OVERDUE_NOTICE"
     DATA_DELETION_WARNING = "DATA_DELETION_WARNING"
+    WHATSAPP_REMINDER = "WHATSAPP_REMINDER"
+    WHATSAPP_OVERDUE = "WHATSAPP_OVERDUE"
 
 
 class NotificationKind(str, Enum):

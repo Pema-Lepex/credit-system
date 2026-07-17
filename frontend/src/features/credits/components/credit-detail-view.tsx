@@ -43,6 +43,7 @@ import { CreditStatusBadge, DueDateBadge } from "@/features/credits/components/s
 import { useCredit, usePaymentHistory } from "@/features/credits/hooks/use-credit";
 import { useMoney } from "@/features/credits/hooks/use-business-settings";
 import { useSendReminder } from "@/features/credits/hooks/use-credit-mutations";
+import { WhatsAppReminderButton } from "@/features/credits/components/whatsapp-reminder-button";
 import { parseApiError } from "@/features/credits/lib/errors";
 import { toCents } from "@/features/credits/lib/money";
 import { downloadInvoicePdf } from "@/features/credits/lib/rest";
@@ -145,14 +146,19 @@ export function CreditDetailView({ creditId }: { creditId: ID }) {
             ) : null}
 
             {canRemind ? (
-              <Button
-                variant="outline"
-                leftIcon={<Send />}
-                isLoading={sendReminder.isPending}
-                onClick={() => sendReminder.mutate(data.id)}
-              >
-                Send reminder
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  leftIcon={<Send />}
+                  isLoading={sendReminder.isPending}
+                  onClick={() => sendReminder.mutate(data.id)}
+                >
+                  Send reminder
+                </Button>
+                {/* The manual channel, sitting next to the automatic one. It needs no
+                    mail provider, so it keeps working when email does not. */}
+                <WhatsAppReminderButton creditId={data.id} size="md" />
+              </>
             ) : null}
 
             <Button

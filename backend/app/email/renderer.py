@@ -98,6 +98,9 @@ VARIABLES: dict[str, TemplateVariable] = {
         _v("invoice_number", "Invoice reference, when one was issued", "INV-2026-0142"),
         _v("due_date", "The date payment is due", "21 July 2026"),
         _v("days_until_due", "Days remaining until the due date (negative = overdue)", "3"),
+        # Clamped to 0 or more by the caller, unlike days_until_due. An overdue
+        # message reads "12 days ago", never "-12 days ago".
+        _v("days_overdue", "Days since the due date passed (0 if not yet due)", "12"),
         # --- Payment --------------------------------------------------------
         _v("payment_amount", "Amount of the payment just received", "Nu 1,250.00"),
         _v("payment_date", "Date the payment was received", "14 July 2026"),
@@ -177,6 +180,31 @@ AVAILABLE_VARIABLES: dict[EmailTemplateKind, list[TemplateVariable]] = {
         "deletion_date",
         "storage_used",
         "download_link",
+        *_BUSINESS_VARS,
+    ),
+    # WhatsApp. Same variables as their email counterparts MINUS payment_link:
+    # these render to plain text in a chat, where a bare URL is both ugly and a
+    # spam signal. days_overdue is offered only here -- the email overdue notice
+    # does not populate it (see services/reminder.py), and offering a variable that
+    # silently renders empty is worse than not offering it.
+    EmailTemplateKind.WHATSAPP_REMINDER: _vars(
+        *_CUSTOMER_VARS,
+        "credit_number",
+        "amount",
+        "amount_paid",
+        "remaining",
+        "due_date",
+        "days_until_due",
+        *_BUSINESS_VARS,
+    ),
+    EmailTemplateKind.WHATSAPP_OVERDUE: _vars(
+        *_CUSTOMER_VARS,
+        "credit_number",
+        "amount",
+        "amount_paid",
+        "remaining",
+        "due_date",
+        "days_overdue",
         *_BUSINESS_VARS,
     ),
 }

@@ -270,6 +270,45 @@ DEFAULT_TEMPLATES: tuple[_DefaultTemplate, ...] = (
             f"policy at any time in Settings &rarr; Data &amp; retention.</p>"
         ),
     ),
+    # ----------------------------------------------------------------------
+    # WhatsApp. Not email -- these render to PLAIN TEXT for a click-to-chat link
+    # (app/services/whatsapp.py), so the markup here is only <p> for line breaks.
+    # No summary tables, no colours, no signature: a chat window is not an inbox.
+    #
+    # `subject` is unused by the WhatsApp path -- a chat message has no subject
+    # line. It is set anyway because the column is NOT NULL and because the admin
+    # template list shows it as the row's description.
+    #
+    # Short on purpose. These are read on a phone, by someone who is being asked
+    # for money by a neighbour they will see tomorrow -- so: what is owed, when,
+    # and an easy out if they have already paid.
+    # ----------------------------------------------------------------------
+    _DefaultTemplate(
+        kind=EmailTemplateKind.WHATSAPP_REMINDER,
+        name="WhatsApp reminder",
+        subject="Sent by WhatsApp — no subject line is used",
+        body_html=(
+            "<p>Hello {{customer_name}},</p>"
+            "<p>A friendly reminder from {{business_name}}: {{remaining}} is due on "
+            "{{due_date}} ({{days_until_due}} days from now).</p>"
+            "<p>Reference: {{credit_number}}</p>"
+            "<p>If you have already paid, please ignore this message — and thank you!</p>"
+        ),
+    ),
+    _DefaultTemplate(
+        kind=EmailTemplateKind.WHATSAPP_OVERDUE,
+        name="WhatsApp overdue notice",
+        subject="Sent by WhatsApp — no subject line is used",
+        body_html=(
+            "<p>Hello {{customer_name}},</p>"
+            "<p>This is {{business_name}}. Our records show {{remaining}} on "
+            "{{credit_number}} was due on {{due_date}}, which is {{days_overdue}} days "
+            "ago.</p>"
+            "<p>If you have already paid, please ignore this message. Otherwise, could "
+            "you let us know when you might be able to settle it?</p>"
+            "<p>Thank you.</p>"
+        ),
+    ),
 )
 
 _DEFAULTS_BY_KIND: dict[EmailTemplateKind, _DefaultTemplate] = {

@@ -702,6 +702,23 @@ class MaintenanceResult:
     rows_affected: int
 
 
+@strawberry.type(
+    description=(
+        "A ready-to-send WhatsApp reminder. Opening `url` launches WhatsApp with "
+        "`text` pre-filled; the owner still taps Send. Nothing is sent by the server."
+    )
+)
+class WhatsAppLinkType:
+    #: The wa.me link to open. Contains the message, URL-encoded.
+    url: str
+    #: The same message as plain text -- shown in the UI so the owner can read what
+    #: they are about to send BEFORE WhatsApp opens, and copy it if they prefer.
+    text: str
+    #: E.164 digits, no '+', exactly as wa.me requires.
+    to_phone: str
+    customer_name: str
+
+
 @strawberry.type
 class ArchiveBatchType:
     id: strawberry.ID

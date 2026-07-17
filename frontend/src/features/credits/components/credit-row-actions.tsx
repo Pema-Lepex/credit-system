@@ -4,6 +4,7 @@ import {
   Ban,
   Download,
   Eye,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Receipt,
@@ -21,11 +22,15 @@ import {
   DropdownMenuTrigger,
   toast,
 } from "@/components/ui";
-import { useSendReminder } from "@/features/credits/hooks/use-credit-mutations";
+import {
+  useComposeWhatsappReminder,
+  useSendReminder,
+} from "@/features/credits/hooks/use-credit-mutations";
+import { WhatsAppReviewDialog } from "@/features/credits/components/whatsapp-reminder-button";
 import { parseApiError } from "@/features/credits/lib/errors";
 import { downloadInvoicePdf } from "@/features/credits/lib/rest";
 import { toCents } from "@/features/credits/lib/money";
-import type { CreditListRow } from "@/features/credits/queries";
+import type { CreditListRow, WhatsAppLink } from "@/features/credits/queries";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +62,11 @@ export function CreditRowActions({
   const router = useRouter();
   const { hasPermission } = useAuth();
   const sendReminder = useSendReminder();
+  const composeWhatsapp = useComposeWhatsappReminder();
   const [isDownloading, setIsDownloading] = useState(false);
+  // Held here rather than inside the menu: selecting an item unmounts it, which
+  // would take the review dialog with it before it ever rendered.
+  const [whatsappLink, setWhatsappLink] = useState<WhatsAppLink | null>(null);
 
   const isCancelled = credit.status === "CANCELLED";
   const isPaid = credit.status === "PAID";
@@ -83,6 +92,7 @@ export function CreditRowActions({
   };
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Actions for credit ${credit.number}`}
@@ -109,13 +119,22 @@ export function CreditRowActions({
         ) : null}
 
         {canRemind ? (
-          <DropdownMenuItem
-            icon={<Send />}
-            disabled={sendReminder.isPending}
-            onSelect={() => sendReminder.mutate(credit.id)}
-          >
-            Send reminder
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              icon={<Send />}
+              disabled={sendReminder.isPending}
+              onSelect={() => sendReminder.mutate(credit.id)}
+            >
+              Send reminder
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              icon={<MessageCircle />}
+              disabled={composeWhatsapp.isPending}
+              onSelect={() => composeWhatsapp.mutate(credit.id, { onSuccess: setWhatsappLink })}
+            >
+              Remind on WhatsApp
+            </DropdownMenuItem>
+          </>
         ) : null}
 
         <DropdownMenuItem
@@ -154,5 +173,8 @@ export function CreditRowActions({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+
+    <WhatsAppReviewDialog link={whatsappLink} onClose={() => setWhatsappLink(null)} />
+    </>
   );
 }

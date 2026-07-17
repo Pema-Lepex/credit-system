@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseApiError } from "@/features/credits/lib/errors";
 import {
   CANCEL_CREDIT_MUTATION,
+  COMPOSE_WHATSAPP_REMINDER_MUTATION,
   CREATE_CREDIT_MUTATION,
   DELETE_CREDIT_MUTATION,
   SEND_REMINDER_MUTATION,
@@ -12,6 +13,7 @@ import {
   creditKeys,
   type CreditCreateInput,
   type CreditUpdateInput,
+  type WhatsAppLink,
 } from "@/features/credits/queries";
 import { paymentKeys } from "@/features/payments/queries";
 import { dashboardKeys } from "@/features/dashboard/queries";
@@ -138,6 +140,32 @@ export function useSendReminder() {
     },
     onError: (error) => {
       toast.error("Could not send the reminder", {
+        description: parseApiError(error).message,
+      });
+    },
+  });
+}
+
+/**
+ * Compose a WhatsApp reminder — returns a wa.me link, sends nothing.
+ *
+ * No success toast and no cache invalidation on purpose: nothing has happened yet.
+ * The owner has only asked to *see* the message; the caller shows it to them, and
+ * they decide whether to open WhatsApp and tap Send.
+ *
+ * The error path matters more than usual here — the common failure is a customer
+ * whose phone has no country code, and the server's message names both the customer
+ * and the fix, so it is surfaced verbatim.
+ */
+export function useComposeWhatsappReminder() {
+  return useMutation({
+    mutationFn: (creditId: ID) =>
+      gqlRequest<{ composeWhatsappReminder: WhatsAppLink }, { creditId: ID }>(
+        COMPOSE_WHATSAPP_REMINDER_MUTATION,
+        { creditId },
+      ).then((data) => data.composeWhatsappReminder),
+    onError: (error) => {
+      toast.error("Could not prepare the WhatsApp message", {
         description: parseApiError(error).message,
       });
     },
