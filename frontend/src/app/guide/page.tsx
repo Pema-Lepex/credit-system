@@ -34,6 +34,7 @@ const HANDBOOK = `
       <a href="#roles">Who's who</a>
       <a href="#start">Get started</a>
       <a href="#loop">Daily rhythm</a>
+      <a href="#settle">Payments</a>
       <a href="#tour">Everything</a>
       <a class="signin" href="/login">Sign in &rarr;</a>
     </nav>
@@ -110,8 +111,8 @@ const HANDBOOK = `
         </div>
         <div class="card">
           <span class="ref">Job 03 &middot; Reconcile</span>
-          <h3>Log every payment</h3>
-          <p>Take Nu. 200 today, and the balance updates itself. You always know the real remaining amount.</p>
+          <h3>Take the money</h3>
+          <p>One number per customer: what they owe you, right now. They hand you cash, you type the amount, and everything underneath sorts itself out.</p>
         </div>
         <div class="card">
           <span class="ref">Not the job</span>
@@ -190,8 +191,9 @@ const HANDBOOK = `
         <div class="step">
           <span class="n">5</span>
           <div>
-            <h4>Record your first credit</h4>
-            <p>Go to <strong>Credits &rarr; New</strong>, pick the customer, list what they took, set a due date &mdash; done. Your notebook just went digital.</p>
+            <h4>Record your first sale</h4>
+            <p>Open the customer, tap <strong>Add sale</strong>, and type the amount. That's it &mdash; no due date to pick, nothing to itemise. Your notebook just went digital.</p>
+            <p>Already have a list of customers in a spreadsheet? Skip the typing &mdash; see <a href="#tour">Bring your book with you</a>.</p>
           </div>
         </div>
       </div>
@@ -201,30 +203,62 @@ const HANDBOOK = `
   <section id="loop">
     <div class="wrap measure">
       <span class="sec-label">The daily rhythm</span>
-      <h2>Record. Get paid. Let it remind. Repeat.</h2>
-      <p class="lead">Once you're set up, the whole app is really just this small loop &mdash; told here through one afternoon at Dorji General Store.</p>
+      <h2>One page per customer. One number that matters.</h2>
+      <p class="lead">A regular doesn't buy once a month &mdash; they buy six times a day. So the app is built around the only question either of you actually asks: <em>how much do I owe you?</em></p>
 
       <div class="slip">
         <div class="slip-head">
-          <b>Credit &middot; Sonam Dorji</b>
-          <span>CR-2026-0042</span>
+          <b>Sonam Dorji &middot; Account</b>
+          <span>Nu. 8,240 owing</span>
         </div>
         <div class="slip-body">
-          <div class="slip-line"><span class="lbl">Rice, 5 kg</span><span class="num">Nu. 300</span></div>
-          <div class="slip-line"><span class="lbl">Cooking oil, 1 L</span><span class="num">Nu. 150</span></div>
-          <div class="slip-line"><span class="lbl">Grand total &middot; due in 7 days</span><span class="num">Nu. 450</span></div>
-          <div class="slip-line"><span class="lbl">Payment received today</span><span class="num pos">&minus; Nu. 200</span></div>
-          <div class="slip-line total"><span>Still owed</span><span class="num">Nu. 250</span></div>
+          <div class="slip-line"><span class="lbl">3 Jul &middot; Cigarettes</span><span class="num">Nu. 30</span></div>
+          <div class="slip-line"><span class="lbl">3 Jul &middot; Soft drink</span><span class="num">Nu. 25</span></div>
+          <div class="slip-line"><span class="lbl">3 Jul &middot; Snacks</span><span class="num">Nu. 60</span></div>
+          <div class="slip-line"><span class="lbl">4 Jul &middot; Rice 5kg, cooking oil</span><span class="num">Nu. 670</span></div>
+          <div class="slip-line"><span class="lbl">&hellip; and 380 more entries</span><span class="num">&nbsp;</span></div>
+          <div class="slip-line"><span class="lbl">1 Aug &middot; Payment &mdash; salary</span><span class="num pos">&minus; Nu. 8,240</span></div>
+          <div class="slip-line total"><span>Owing now</span><span class="num">Nu. 0</span></div>
         </div>
       </div>
 
-      <p><strong>1. Sonam takes goods on credit.</strong> You open <strong>Credits &rarr; New</strong>, add the rice and oil, and set the due date a week out. The grand total &mdash; <em>Nu. 450</em> &mdash; adds itself up. The entry is now marked <span class="pill due" style="margin:0 .1rem;">Pending</span>.</p>
-      <p><strong>2. He pays part of it.</strong> A few days later he hands you Nu. 200. You tap <strong>Record payment</strong> on his credit, and the balance drops to <em>Nu. 250</em> on its own. The status becomes <span class="pill due" style="margin:0 .1rem;">Partially paid</span> &mdash; and every payment is kept in a history you can look back on.</p>
-      <p><strong>3. The reminder does the chasing.</strong> Before the due date, Lepex emails both of you a friendly nudge. When Sonam clears the last Nu. 250, the credit flips to <span class="pill paid" style="margin:0 .1rem;">Paid</span> &mdash; and you never had to send an awkward message.</p>
+      <p><strong>1. Open his page.</strong> <strong>Customers &rarr; Sonam Dorji</strong> lands on his <strong>Account</strong>, and the first thing you see is one big number: <em>Nu. 8,240</em>. That's the number to turn the phone around and show him.</p>
+      <p><strong>2. He takes a packet of cigarettes.</strong> Tap <strong>Add sale</strong>, type <em>30</em>, save. Under five seconds, one hand, customer still standing there. You can type what it was if you have a moment &mdash; and skip it if you don't.</p>
+      <p><strong>3. Do that fifteen times a day.</strong> Every one is a line on his page, with the date and the running balance beside it &mdash; exactly like a bank passbook, because that's the page both of you already know how to read.</p>
+      <p><strong>4. Payday.</strong> He hands you Nu. 8,240. Tap <strong>Record payment</strong> &mdash; the amount is already filled in with his full balance &mdash; and save. <em>One tap.</em> Not four hundred.</p>
+
       <div class="note">
         <span class="ic">&rsaquo;</span>
-        <div>If a due date passes unpaid, the credit turns <span class="pill overdue" style="margin:0 .15rem;">Overdue</span> and rises to the top of your dashboard &mdash; so the thing that needs attention is the thing you see first.</div>
+        <div>You are never asked <em>which</em> purchase the money is for. Nobody knows, and nobody needs to &mdash; he paid down what he owed. The app works out the rest (see <a href="#settle">below</a>).</div>
       </div>
+    </div>
+  </section>
+
+  <section id="settle">
+    <div class="wrap measure">
+      <span class="sec-label">How a payment lands</span>
+      <h2>Money fills the oldest debt first.</h2>
+      <p class="lead">When someone pays part of what they owe, the app settles their <strong>oldest</strong> purchases first &mdash; the same thing you'd do with cash on a counter, working down the page from the top.</p>
+
+      <div class="slip">
+        <div class="slip-head">
+          <b>Customer A pays Nu. 150</b>
+          <span>Oldest first</span>
+        </div>
+        <div class="slip-body">
+          <div class="slip-line"><span class="lbl">Credit 1 &middot; 12 July &middot; Nu. 100</span><span class="tag"><span class="pill paid">Paid</span></span></div>
+          <div class="slip-line"><span class="lbl">Credit 2 &middot; 18 July &middot; Nu. 100 &mdash; Nu. 50 still owing</span><span class="tag"><span class="pill due">Partially paid</span></span></div>
+          <div class="slip-line total"><span>Owing now</span><span class="num">Nu. 50</span></div>
+        </div>
+      </div>
+
+      <p>Two Nu. 100 credits, one Nu. 150 payment: the first is <strong>settled in full</strong>, the second is <strong>Nu. 50 short</strong>. You do nothing &mdash; and the Credits list says the same thing as his Account page, immediately.</p>
+
+      <div class="thesis">You never sort out which credit got paid. That's the app's job, and it does it the way you would.</div>
+
+      <p><strong>If you do want to choose</strong>, you still can: open a specific credit and use <strong>Record payment</strong> there. Money aimed at one credit stays on it, and only what's left over flows down the page. Your choice always wins.</p>
+      <p><strong>If they pay too much</strong>, the extra isn't lost &mdash; their balance simply goes into credit, and it counts against whatever they buy next. Handing over a round Nu. 10,000 against Nu. 9,880 owing is normal, so the app treats it as normal.</p>
+      <p><strong>If they pay early</strong>, nothing gets chased. A credit that's settled before its due date is never reminded about &mdash; you won't send a nudge for money that's already in your drawer.</p>
     </div>
   </section>
 
@@ -245,24 +279,39 @@ const HANDBOOK = `
         </div>
 
         <div class="card">
+          <span class="ref">Ledger &middot; Account</span>
+          <h3>What they owe, right now</h3>
+          <p>Every customer has an <strong>Account</strong> page: one big balance, and underneath it their whole history &mdash; every purchase, every payment, and the running total after each one, like a bank passbook. <strong>Add sale</strong> and <strong>Record payment</strong> both live here, because this is the page you'll actually live on.</p>
+          <div class="foot"><span>Add sale &middot; Record payment</span><span class="val">one number</span></div>
+        </div>
+
+        <div class="card">
           <span class="ref">Ledger &middot; Credits</span>
           <h3>The heart of it</h3>
-          <p>Every &ldquo;pay later&rdquo; as one clean record: items, quantities, discount, tax, grand total, amount paid, remaining, due date, and a photo of the goods or invoice if you like. Status keeps itself honest &mdash; Pending, Partially paid, Paid, or Overdue.</p>
+          <p>Every &ldquo;pay later&rdquo; as one clean record: items, quantities, discount, tax, grand total, amount paid, remaining, due date, and a photo of the goods or invoice if you like. Status keeps itself honest &mdash; Pending, Partially paid, Paid, or Overdue &mdash; and updates the moment a payment lands, whether or not it named this credit.</p>
           <div class="foot"><span>Auto-numbered</span><span class="val">CR-2026-0042</span></div>
         </div>
 
         <div class="card">
           <span class="ref">Ledger &middot; Payments</span>
           <h3>Money coming back</h3>
-          <p>Log each repayment with the amount, date, method and a reference. The remaining balance recalculates instantly, and the full payment history stays attached to the credit &mdash; no more &ldquo;did he pay that or not?&rdquo;</p>
-          <div class="foot"><span>Every payment kept</span><span class="val">balance auto-updates</span></div>
+          <p>Take a payment against the whole account &mdash; the usual way &mdash; or against one specific credit if you want to choose. Either way the amount, date, method and reference are kept forever, and every balance in the app moves with it. No more &ldquo;did he pay that or not?&rdquo;</p>
+          <div class="foot"><span>Every payment kept</span><span class="val">oldest settled first</span></div>
         </div>
 
         <div class="card">
           <span class="ref">Ledger &middot; Catalogue</span>
           <h3>Products &amp; Services</h3>
-          <p>Keep a list of what you sell &mdash; with price, SKU, barcode, category and stock &mdash; plus the services you offer and their rates. Building a credit then becomes point-and-add instead of typing it all out.</p>
+          <p>Keep a list of what you sell &mdash; with price, SKU, barcode, category and stock &mdash; plus the services you offer and their rates. Building a credit then becomes point-and-add instead of typing it all out. Got a long list already? Bring it in from a spreadsheet.</p>
           <div class="foot"><span>Reusable line items</span><span class="val">faster entry</span></div>
+        </div>
+
+        <div class="card">
+          <span class="ref">Ledger &middot; Import</span>
+          <h3>Bring your book with you</h3>
+          <p>Years of names already typed into Excel? Download a <strong>template</strong> &mdash; it comes with the right headings and a page of notes &mdash; fill it in, and upload. Works for <strong>customers, credits, products and services</strong>.</p>
+          <p>Nothing is saved until you've seen it: every file is checked first and any problem is shown against the row and column you'd see in Excel. If one row is wrong, <em>nothing</em> goes in &mdash; so you're never left guessing which half landed.</p>
+          <div class="foot"><span>Excel &middot; CSV</span><span class="val">checked before saving</span></div>
         </div>
 
         <div class="card">
@@ -282,8 +331,16 @@ const HANDBOOK = `
         <div class="card">
           <span class="ref">Reach &middot; Reminders</span>
           <h3>Nudges on autopilot</h3>
-          <p>Choose when reminders go out &mdash; 1, 3 or 7 days before a due date, or your own schedule &mdash; to both you and your customer. Set it once and let the calendar do the chasing.</p>
-          <div class="foot"><span>Email today</span><span class="val">SMS &amp; WhatsApp-ready</span></div>
+          <p>Choose when reminders go out &mdash; 1, 3 or 7 days before a due date, or your own schedule &mdash; to both you and your customer. Set it once and let the calendar do the chasing. Anything already paid is never chased.</p>
+          <div class="foot"><span>Automatic</span><span class="val">by email</span></div>
+        </div>
+
+        <div class="card">
+          <span class="ref">Reach &middot; WhatsApp</span>
+          <h3>The message they'll actually read</h3>
+          <p>Tap <strong>WhatsApp</strong> on any credit and your own WhatsApp opens with the reminder already written &mdash; their name, the amount, the date, all filled in from your template. You read it, and <em>you</em> press send.</p>
+          <p>It goes from your number, like any other message, so there's nothing to sign up for and nothing to pay. The only catch: it's one tap per customer, and the phone number needs its country code (<span style="font-family:var(--gd-mono);font-size:.85em;">+975&hellip;</span>).</p>
+          <div class="foot"><span>Free &middot; no setup</span><span class="val">you press send</span></div>
         </div>
 
         <div class="card">
@@ -359,8 +416,29 @@ const HANDBOOK = `
       <h2>The questions everyone asks.</h2>
       <div class="faq">
         <details>
+          <summary>A customer paid. Which credit does it settle?</summary>
+          <p>The <strong>oldest one first</strong>, then the next, until the money runs out &mdash; the same way you'd work down the page yourself. Pay Nu. 150 against two Nu. 100 credits and the first reads <span class="pill paid" style="margin:0 .1rem;">Paid</span>, the second <span class="pill due" style="margin:0 .1rem;">Partially paid</span> with Nu. 50 to go.</p>
+          <p>If you'd rather choose, open that credit and use <strong>Record payment</strong> there instead. Money you aim at a credit stays on it, and only the rest flows to the oldest.</p>
+        </details>
+        <details>
+          <summary>Why does the Credits list show &ldquo;Paid&rdquo; when I never touched that credit?</summary>
+          <p>Because the customer's payment covered it. You record money against the <em>person</em>, not against a line item &mdash; so the app marks off whatever that money reached. The Credits list, the customer's balance, your dashboard and your reports all read the same thing, always.</p>
+        </details>
+        <details>
+          <summary>What if someone pays more than they owe?</summary>
+          <p>Nothing breaks &mdash; their balance simply goes into credit, and it counts against whatever they buy next. Handing over a round Nu. 10,000 against Nu. 9,880 owing is an ordinary Tuesday, so the app treats it as one.</p>
+        </details>
+        <details>
+          <summary>Can I bring in the customers I already have?</summary>
+          <p>Yes. Download the template from <strong>Customers &rarr; Import</strong>, fill it in, and upload &mdash; and the same for credits, products and services. Your file is checked before anything is saved, and any problem is pointed at by row and column. If one row is wrong, nothing is saved, so you're never left with half an import.</p>
+        </details>
+        <details>
+          <summary>Can I remind someone on WhatsApp?</summary>
+          <p>Yes &mdash; tap <strong>WhatsApp</strong> on a credit and your own WhatsApp opens with the message already written. You check it and press send, so it comes from your number like any other message. It's free, there's nothing to set up, and it's one tap per customer.</p>
+        </details>
+        <details>
           <summary>Do my customers need to install anything?</summary>
-          <p>No. Lepex is for <em>you</em>, the shopkeeper. Your customers only ever receive a friendly reminder email &mdash; there's nothing for them to download, sign up for, or learn.</p>
+          <p>No. Lepex is for <em>you</em>, the shopkeeper. Your customers only ever receive a friendly reminder &mdash; by email, or on WhatsApp from your own number. There's nothing for them to download, sign up for, or learn.</p>
         </details>
         <details>
           <summary>Does it work on my phone?</summary>
@@ -398,6 +476,7 @@ const HANDBOOK = `
       <span>Lepex Credit Manager</span>
       <a href="#why">Why</a>
       <a href="#start">Get started</a>
+      <a href="#settle">Payments</a>
       <a href="#tour">Everything</a>
       <a href="/login">Sign in</a>
       <span class="foot-cta">Built for shopkeepers, not accountants.</span>
