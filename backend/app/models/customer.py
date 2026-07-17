@@ -57,6 +57,20 @@ class Customer(TenantEntity, table=True):
     # CreditScoreService from this business's own history with this customer:
     # on-time payment ratio, overdue count, average days late, outstanding load.
     # Stored so it can be sorted/filtered on; recomputed on every payment.
+    # -- the ledger cache (Stage 1: written by LedgerService, read by nothing yet) --
+    #: What this customer owes, per the account ledger. THE difference from
+    #: ``outstanding_balance`` above: this one is NOT clamped at zero. A negative
+    #: value means the customer has paid ahead and the shop is holding an advance --
+    #: a real state that the legacy column cannot represent.
+    #:
+    #: O(1) by design: "what do they owe?" must never be a scan over 400 rows.
+    #: LedgerService is its only writer, and LedgerService.verify proves it still
+    #: equals SUM(ledger_entry.amount).
+    ledger_balance: Decimal = Field(default=Decimal("0"), sa_type=MoneyType, index=True)
+    #: The last seq posted for this customer. Lets post() assign seq without an
+    #: ORDER BY over the whole account.
+    ledger_seq: int = Field(default=0)
+
     credit_score: int = Field(default=50, index=True)
     credit_limit: Decimal | None = Field(default=None, sa_type=MoneyType)  # type: ignore[call-overload]
 

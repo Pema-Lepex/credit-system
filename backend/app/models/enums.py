@@ -139,6 +139,43 @@ class EmailTemplateKind(str, Enum):
     WHATSAPP_OVERDUE = "WHATSAPP_OVERDUE"
 
 
+class LedgerEntryType(str, Enum):
+    """Every way a customer's balance can move.
+
+    THE SIGN CONVENTION, fixed once and enforced by LedgerService:
+    a POSITIVE amount increases what the customer owes; a NEGATIVE amount reduces
+    it. There are no debit/credit columns -- one signed integer makes the balance a
+    plain SUM(), makes a reversal a negation, and removes the whole class of bug
+    where a row has both columns populated.
+
+    A negative balance is legal and meaningful: the shop is holding an advance.
+    """
+
+    #: Carried forward -- from paper, or from a period that has been archived away.
+    OPENING_BALANCE = "OPENING_BALANCE"
+    #: They took goods. Posted by a sale (today: by a Credit).
+    CHARGE = "CHARGE"
+    #: They paid. Posted by a payment, against the ACCOUNT -- never against one charge.
+    PAYMENT = "PAYMENT"
+    #: A correction, a discount, a returned item.
+    ADJUSTMENT = "ADJUSTMENT"
+    #: Debt forgiven or abandoned. A decision, recorded rather than deleted.
+    WRITE_OFF = "WRITE_OFF"
+    #: Cancels an earlier entry. The ONLY way to undo one -- see models/ledger.py.
+    REVERSAL = "REVERSAL"
+
+    @classmethod
+    def increases_debt(cls) -> frozenset["LedgerEntryType"]:
+        """Types whose amount must be >= 0. ADJUSTMENT/REVERSAL/OPENING_BALANCE may
+        go either way, so they are in neither set."""
+        return frozenset({cls.CHARGE})
+
+    @classmethod
+    def reduces_debt(cls) -> frozenset["LedgerEntryType"]:
+        """Types whose amount must be <= 0."""
+        return frozenset({cls.PAYMENT, cls.WRITE_OFF})
+
+
 class NotificationKind(str, Enum):
     EMAIL_SENT = "EMAIL_SENT"
     REMINDER_SENT = "REMINDER_SENT"

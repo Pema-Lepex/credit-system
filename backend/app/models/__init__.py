@@ -28,6 +28,7 @@ from app.models.enums import (
     ExportState,
     FileKind,
     ItemKind,
+    LedgerEntryType,
     NotificationKind,
     NotificationState,
     PaymentMethod,
@@ -38,6 +39,7 @@ from app.models.enums import (
     RetentionPolicy,
 )
 from app.models.file import FileAsset
+from app.models.ledger import LedgerEntry
 from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.models.stored_blob import StoredBlob
@@ -64,6 +66,8 @@ __all__ = [
     "EmailTemplate",
     "ExportJob",
     "FileAsset",
+    "LedgerEntry",
+    "LedgerEntryType",
     "Notification",
     "PasswordResetToken",
     "Payment",
