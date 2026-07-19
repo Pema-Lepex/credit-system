@@ -186,6 +186,15 @@ const CREATE_EXPORT_MUTATION = /* GraphQL */ `
   }
 `;
 
+const DELETE_EXPORT_MUTATION = /* GraphQL */ `
+  mutation DeleteExport($id: ID!) {
+    deleteExport(id: $id) {
+      success
+      message
+    }
+  }
+`;
+
 export const reportKeys = {
   all: ["report"] as const,
   summary: (input: ReportInput) => ["report", "summary", input] as const,
@@ -245,6 +254,30 @@ export function useCreateExport() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: exportKeys.all });
       // A new export file counts against the storage quota.
+      void queryClient.invalidateQueries({ queryKey: ["storage"] });
+    },
+  });
+}
+
+/**
+ * Delete one export for good — the file and its row.
+ *
+ * Irreversible, so the caller is expected to confirm first. Invalidates `storage`
+ * alongside the list: deleting an export is one of the few actions a user takes
+ * *specifically* to reclaim quota, and a storage figure that ignores it looks broken.
+ */
+export function useDeleteExport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const data = await gqlRequest<
+        { deleteExport: { success: boolean; message: string } },
+        { id: string }
+      >(DELETE_EXPORT_MUTATION, { id });
+      return data.deleteExport;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: exportKeys.all });
       void queryClient.invalidateQueries({ queryKey: ["storage"] });
     },
   });

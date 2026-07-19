@@ -251,12 +251,12 @@ class StorageStatsService(BaseService):
 
     async def delete_expired_exports(self) -> MaintenanceResult:
         self.require(Permission.STORAGE_MAINTAIN)
-        expired, freed = await ExportService.expire_stale(
+        purged, freed = await ExportService.purge_stale(
             self.session, business_id=self.scope_id  # tenancy boundary
         )
         return self._done(
-            "delete_expired_exports", rows=expired, freed=freed,
-            detail=f"Expired {expired} export(s), freeing {_human(freed)}",
+            "delete_expired_exports", rows=purged, freed=freed,
+            detail=f"Deleted {purged} expired export(s), freeing {_human(freed)}",
         )
 
     async def sweep_orphan_files(self) -> MaintenanceResult:

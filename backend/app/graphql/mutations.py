@@ -1165,6 +1165,15 @@ class Mutation:
         )
         return m.to_export_job(ctx.session, job)
 
+    @strawberry.mutation(
+        description="Permanently delete an export -- file and record. Not reversible."
+    )
+    @commits
+    async def delete_export(self, info: strawberry.Info, id: strawberry.ID) -> MessagePayload:
+        ctx = _ctx(info)
+        await ExportService(ctx).delete_export(str(id))
+        return MessagePayload(success=True, message="Export deleted.")
+
     # =====================================================================
     # Retention
     # =====================================================================

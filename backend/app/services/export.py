@@ -18,11 +18,23 @@ LIFECYCLE
 ---------
     PENDING -> RUNNING -> READY (file attached, expires_at set)
                        \\-> FAILED (error recorded, no file)
-    READY   -> EXPIRED (daily job: file deleted, row kept as a receipt)
+    READY   -> (purged: file AND row deleted outright)
 
 Exported files self-destruct after ``settings.EXPORT_TTL_HOURS``. Nothing generated
 is kept forever -- that is what stops a free-tier disk filling with stale
-spreadsheets, and it is why ``expire_stale`` exists.
+spreadsheets, and it is why ``purge_stale`` exists.
+
+WHY THE ROW GOES TOO
+--------------------
+An earlier version kept the ExportJob row as a receipt and only flipped it to
+EXPIRED. That left the exports table filling up with dead entries the user could not
+act on, and it kept a record of *what was exported* (dataset names, row counts,
+filters) around indefinitely -- which is exactly the kind of residue a "delete my
+export" button is supposed to remove. The receipt now lives in ``audit_log``, where
+an append-only trail belongs; the ExportJob row is deleted outright, satisfying the
+spec's "all deletion operations must be logged" without keeping the payload.
+
+EXPIRED remains in the enum for historical rows written before this change.
 """
 
 from __future__ import annotations
@@ -64,7 +76,7 @@ from app.models.enums import (
     ReportPeriod,
 )
 from app.models.file import FileAsset
-from app.models.retention import ArchiveBatch, ExportJob
+from app.models.retention import ArchiveBatch, AuditLog, ExportJob
 from app.services.base import BaseService, ServiceContext
 from app.services.reports import ReportService
 from app.storage.service import StorageService
@@ -208,6 +220,10 @@ class ExportService(BaseService):
             job.error = str(exc)[:1000]
             job.completed_at = utcnow()
             job.file_id = None
+            # A FAILED row expires on the same clock as a successful one. Without
+            # this it has no expires_at, so purge_stale never matches it and the
+            # error sits in the user's exports table forever.
+            job.expires_at = utcnow() + timedelta(hours=settings.EXPORT_TTL_HOURS)
             self.session.add(job)
             self.session.flush()
             return job
@@ -649,41 +665,102 @@ class ExportService(BaseService):
             return None  # the sweep has not run yet, but it is already dead
         return StorageService(self.session).url_for_id(job.file_id)
 
+    # ================================================================== delete
+    async def delete_export(self, export_id: str) -> int:
+        """Delete one export on the user's say-so: file, row and all.
+
+        The button next to "Download". Someone who has saved the spreadsheet should
+        not have to wait 24 hours for their own copy to stop counting against their
+        storage quota.
+
+        Permission is EXPORT_CREATE rather than a new ``export:delete``: a caller who
+        can generate an export can already replace it at will, so being able to throw
+        one away grants no reach they did not have. Adding a permission would mean a
+        role migration for no security gain.
+
+        Returns bytes freed. Idempotent from the caller's side only in the sense that
+        a second call 404s -- the row is really gone.
+        """
+        self.require(Permission.EXPORT_CREATE)
+        job = self.get_export(export_id)  # TENANCY BOUNDARY (asserts scope)
+        return await self._purge(
+            self.session,
+            job,
+            actor_user_id=self.user.id,
+            actor_label=self.user.email,
+            reason="deleted by user",
+        )
+
     # ============================================================== expiration
     @staticmethod
-    async def expire_stale(
+    async def _purge(
+        session: Session,
+        job: ExportJob,
+        *,
+        actor_user_id: str | None = None,
+        actor_label: str = "scheduler",
+        reason: str,
+    ) -> int:
+        """Irreversibly remove one export -- bytes, then row -- and audit it.
+
+        The single place an ExportJob dies, so the audit entry can never be skipped
+        by a new caller. Returns bytes freed.
+        """
+        freed = 0
+        if job.file_id:
+            asset = session.get(FileAsset, job.file_id)
+            if asset is not None:
+                freed += await StorageService(session).hard_delete(asset)
+
+        session.add(
+            AuditLog(
+                business_id=job.business_id,
+                action=AuditAction.PURGE,
+                entity_type="export_job",
+                entity_id=job.id,
+                summary=(
+                    f"Export purged ({reason}): {job.format} of "
+                    f"{', '.join(job.datasets) or 'no datasets'}, "
+                    f"{job.row_count} row(s), {job.size_bytes} byte(s)"
+                ),
+                actor_user_id=actor_user_id,
+                actor_label=actor_label,
+            )
+        )
+
+        # Hard delete, not soft: the point of the TTL is that the record stops
+        # occupying space. A deleted_at row still costs pages and still leaks what
+        # was exported. The AuditLog entry above IS the surviving receipt.
+        session.delete(job)
+        session.flush()
+        return freed
+
+    @staticmethod
+    async def purge_stale(
         session: Session, *, business_id: str | None = None, now: datetime | None = None
     ) -> tuple[int, int]:
-        """Flip READY jobs past their TTL to EXPIRED and delete the file.
+        """Delete every export past its TTL -- file and row both.
 
-        Returns (jobs_expired, bytes_freed). Called by the daily maintenance job with
-        no ``business_id`` (all tenants); the Storage Dashboard calls it with one.
+        Returns (jobs_purged, bytes_freed). Called by the hourly purge job with no
+        ``business_id`` (all tenants); the Storage Dashboard calls it with one.
 
-        The ExportJob ROW survives as a receipt -- the user should be able to see that
-        they exported their customer list last Tuesday even though the file is gone.
+        Any state qualifies, not just READY: a FAILED job that nobody will ever
+        download is still a row, and a job stuck in RUNNING past its own TTL is a
+        crashed run whose temp file needs collecting.
         """
         moment = now or utcnow()
         stmt = select(ExportJob).where(
-            col(ExportJob.state) == ExportState.READY,
             col(ExportJob.expires_at).is_not(None),
             col(ExportJob.expires_at) < moment,
         )
         if business_id:
             stmt = stmt.where(ExportJob.business_id == business_id)  # TENANCY BOUNDARY
 
-        storage = StorageService(session)
-        expired = freed = 0
+        purged = freed = 0
         for job in session.execute(stmt).scalars().all():
-            if job.file_id:
-                asset = session.get(FileAsset, job.file_id)
-                if asset is not None:
-                    freed += await storage.hard_delete(asset)
-            job.file_id = None
-            job.state = ExportState.EXPIRED
-            session.add(job)
-            expired += 1
-        session.flush()
-        return expired, freed
+            freed += await ExportService._purge(session, job, reason="expired")
+            purged += 1
+        return purged, freed
 
     # ================================================================= archive
     async def export_archive_batch(self, ctx: ServiceContext, batch_id: str) -> ExportJob:
@@ -767,6 +844,10 @@ class ExportService(BaseService):
             job.error = str(exc)[:1000]
             job.completed_at = utcnow()
             job.file_id = None
+            # A FAILED row expires on the same clock as a successful one. Without
+            # this it has no expires_at, so purge_stale never matches it and the
+            # error sits in the user's exports table forever.
+            job.expires_at = utcnow() + timedelta(hours=settings.EXPORT_TTL_HOURS)
 
         self.session.add(job)
         self.session.flush()

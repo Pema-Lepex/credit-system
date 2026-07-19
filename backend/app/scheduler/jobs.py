@@ -44,6 +44,7 @@ from app.models.enums import AuditAction, ReminderStatus
 from app.models.retention import AuditLog
 from app.services.base import ServiceContext
 from app.services.credit import CreditService
+from app.services.export import ExportService
 from app.services.reminder import ReminderService, SweepResult
 from app.services.retention import RetentionService
 from app.services.statement import StatementService
@@ -153,6 +154,32 @@ def _ran_today(session, business_id: str, today: date) -> bool:
         col(ScheduledReminder.scheduled_for) == today,
     )
     return session.exec(stmt).first() is not None
+
+
+# ---------------------------------------------------------------------------
+# HOURLY: purge expired exports
+# ---------------------------------------------------------------------------
+async def export_purge() -> None:
+    """Delete exports past their 24h TTL -- file and row -- across all tenants.
+
+    HOURLY, not folded into daily_maintenance, because the TTL is a promise. With a
+    single 02:30 sweep, an export generated at 03:00 expires at 03:00 the next day
+    but survives until 02:30 the day after -- nearly 24 extra hours of a file the
+    user was told had been deleted, still on disk and still on their quota. Hourly
+    makes "24 hours" mean at most 25.
+
+    Runs at :20 to stay clear of the reminder sweep on the hour, which holds
+    SQLite's single write lock while it sends.
+    """
+    with session_scope() as session:
+        try:
+            purged, freed = await ExportService.purge_stale(session)
+        except Exception:
+            log.exception("Export purge failed")
+            return
+
+    if purged:
+        log.info("Purged %d expired export(s), freeing %.1f KB", purged, freed / 1024)
 
 
 # ---------------------------------------------------------------------------

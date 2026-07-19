@@ -1,7 +1,7 @@
 "use client";
 
 import { differenceInMinutes } from "date-fns";
-import { Download, Eye, FileDown, FileSpreadsheet } from "lucide-react";
+import { Download, Eye, FileDown, FileSpreadsheet, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   Checkbox,
+  ConfirmDialog,
   Dialog,
   EmptyState,
   FormField,
@@ -29,6 +30,7 @@ import {
 import {
   EXPORT_DATASETS,
   useCreateExport,
+  useDeleteExport,
   useExports,
   type ExportJob,
 } from "@/features/reports/api";
@@ -218,8 +220,9 @@ function CreateExportDialog({
         </div>
 
         <Alert variant="info">
-          Exports are deleted 24 hours after they are generated, to keep them off your storage
-          quota. Download the file soon after it is ready — you can always generate another.
+          Exports are deleted permanently 24 hours after they are generated, to keep them off
+          your storage quota. Download the file soon after it is ready — you can always generate
+          another, or delete it yourself once you have saved a copy.
         </Alert>
       </div>
     </Dialog>
@@ -252,6 +255,10 @@ function ExportsTable() {
   const { data, isLoading, isError } = useExports(page);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
+  // The job awaiting confirmation. Holding the job (not just an id) keeps the
+  // dialog's copy specific — "delete the CSV of customers", not "delete this item".
+  const [pendingDelete, setPendingDelete] = useState<ExportJob | null>(null);
+  const remove = useDeleteExport();
 
   const jobs = data?.items ?? [];
 
@@ -275,6 +282,20 @@ function ExportsTable() {
       toast.error(error instanceof Error ? error.message : "Could not open that export.");
     } finally {
       setViewing(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await remove.mutateAsync(pendingDelete.id);
+      toast.success("Export deleted.");
+      setPendingDelete(null);
+      // Deleting the last row of the last page would otherwise strand the user on
+      // an empty page with no way back.
+      if (jobs.length === 1 && page > 1) setPage((p) => p - 1);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete that export.");
     }
   };
 
@@ -370,33 +391,51 @@ function ExportsTable() {
                   </TableCell>
 
                   <TableCell align="right">
-                    {downloadable ? (
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          leftIcon={<Eye />}
-                          isLoading={viewing === job.id}
-                          onClick={() => void view(job)}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          leftIcon={<Download />}
-                          isLoading={downloading === job.id}
-                          onClick={() => void download(job)}
-                        >
-                          Download
-                        </Button>
-                      </div>
-                    ) : (
-                      // No dead button. If the file is gone, say so.
-                      <span className="text-muted-foreground text-xs">
-                        {expiry.expired ? "No longer available" : "—"}
-                      </span>
-                    )}
+                    <div className="flex items-center justify-end gap-2">
+                      {downloadable ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            leftIcon={<Eye />}
+                            isLoading={viewing === job.id}
+                            onClick={() => void view(job)}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            leftIcon={<Download />}
+                            isLoading={downloading === job.id}
+                            onClick={() => void download(job)}
+                          >
+                            Download
+                          </Button>
+                        </>
+                      ) : (
+                        // No dead button. If the file is gone, say so.
+                        <span className="text-muted-foreground text-xs">
+                          {expiry.expired ? "No longer available" : "—"}
+                        </span>
+                      )}
+
+                      {/* Delete stays on EVERY row, whatever the state. A failed or
+                          already-expired export is exactly the row a user most wants
+                          out of their list, and it is the one a download-gated button
+                          would have hidden. */}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        // Red only on hover: a permanent row of red trash icons reads
+                        // as an error state, and makes the table feel dangerous.
+                        className="hover:text-destructive"
+                        aria-label={`Delete ${job.format} export`}
+                        leftIcon={<Trash2 />}
+                        isLoading={remove.isPending && pendingDelete?.id === job.id}
+                        onClick={() => setPendingDelete(job)}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -410,6 +449,23 @@ function ExportsTable() {
         pageSize={10}
         totalItems={data?.pageInfo.total ?? 0}
         onPageChange={setPage}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title="Delete this export?"
+        description={
+          pendingDelete
+            ? `The ${pendingDelete.format} file (${pendingDelete.datasets.join(", ")}) will be ` +
+              "deleted permanently, along with its record. This cannot be undone — but you " +
+              "can always generate the export again."
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        isLoading={remove.isPending}
+        onConfirm={() => void confirmDelete()}
       />
     </>
   );

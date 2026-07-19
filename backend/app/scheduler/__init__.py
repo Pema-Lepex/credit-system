@@ -32,6 +32,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.config import settings
 from app.scheduler.jobs import (
     daily_maintenance,
+    export_purge,
     monthly_maintenance,
     reminder_sweep,
     statement_run,
@@ -86,6 +87,17 @@ def start_scheduler() -> AsyncIOScheduler | None:
         CronTrigger(hour=1, minute=15),
         id="statement_run",
         name="Close the month + refresh statement statuses",
+        replace_existing=True,
+    )
+
+    # Hourly at :20. The 24h export TTL is a promise to the user that the file is
+    # gone; a once-a-day sweep would let it linger up to another full day. See
+    # jobs.export_purge. Offset from :00 to avoid the reminder sweep's write lock.
+    scheduler.add_job(
+        export_purge,
+        CronTrigger(minute=20),
+        id="export_purge",
+        name="Purge expired exports",
         replace_existing=True,
     )
 
