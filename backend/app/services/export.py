@@ -101,6 +101,7 @@ DATASETS: tuple[str, ...] = (
     "cash_flow",
     "aging_receivable",
     "tax_summary",
+    "audit_log",
 )
 
 _CONTENT_TYPES: dict[str, str] = {
@@ -397,6 +398,7 @@ class ExportService(BaseService):
             "cash_flow": self._cash_flow,
             "aging_receivable": self._aging_receivable,
             "tax_summary": self._tax_summary,
+            "audit_log": self._audit_log,
         }
         return builders[name](filters)
 
@@ -853,6 +855,59 @@ class ExportService(BaseService):
         return Dataset(
             name="tax_summary",
             headers=["Rate", "Taxable amount", "Tax", "Lines"],
+            rows=rows,
+        )
+
+    def _audit_log(self, filters: dict[str, Any]) -> Dataset:
+        """The activity trail, as a file.
+
+        REQUIRES AUDIT_READ ON TOP OF EXPORT_CREATE. Both are admin-only today, so
+        this changes nothing right now -- but the audit log is the one dataset that
+        records what every user did, and "you can export it because you can export"
+        is the wrong rule. If the two permissions are ever unbundled, this stays
+        correct without anyone remembering to come back here.
+        """
+        self.require(Permission.AUDIT_READ)
+
+        stmt = (
+            select(AuditLog)
+            .where(AuditLog.business_id == self.scope_id)  # TENANCY BOUNDARY
+            .order_by(col(AuditLog.created_at).desc())
+        )
+
+        # created_at is an INSTANT: a bare date bound would drop everything after
+        # midnight on the end date. Same widening as the on-screen filter.
+        tz = self.get_business().timezone
+        if start := _as_date(filters.get("start")):
+            stmt = stmt.where(col(AuditLog.created_at) >= start_of_day(start, tz))
+        if end := _as_date(filters.get("end")):
+            stmt = stmt.where(col(AuditLog.created_at) < end_of_day(end, tz))
+        if action := filters.get("action"):
+            stmt = stmt.where(AuditLog.action == str(action))
+        if entity_type := filters.get("entity_type"):
+            stmt = stmt.where(AuditLog.entity_type == str(entity_type))
+
+        rows = [
+            [
+                _dt(row.created_at),
+                row.actor_label,
+                row.action.value if hasattr(row.action, "value") else str(row.action),
+                row.entity_type,
+                row.summary,
+                # The field-level diff, flattened to one readable cell. A nested
+                # JSON blob in a spreadsheet column helps nobody.
+                "; ".join(
+                    f"{field}: {before} -> {after}"
+                    for field, (before, after) in (row.changes or {}).items()
+                    if isinstance((row.changes or {}).get(field), list)
+                ),
+                row.ip_address or "",
+            ]
+            for row in self.session.exec(stmt).all()
+        ]
+        return Dataset(
+            name="audit_log",
+            headers=["When (UTC)", "Who", "Action", "Type", "What happened", "Changes", "IP"],
             rows=rows,
         )
 

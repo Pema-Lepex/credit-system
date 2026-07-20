@@ -216,6 +216,7 @@ export const EXPORT_DATASETS = [
   { value: "cash_flow", label: "Cash flow" },
   { value: "aging_receivable", label: "Money customers owe" },
   { value: "tax_summary", label: "Tax summary" },
+  { value: "audit_log", label: "Activity log" },
 ] as const;
 
 const REPORT_QUERY = /* GraphQL */ `

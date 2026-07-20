@@ -11,6 +11,8 @@
 import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
 import { useState } from "react";
 
+import { ReportDownloadButtons } from "@/features/reports/components/report-download-buttons";
+
 import {
   Badge,
   Card,
@@ -204,6 +206,36 @@ export function AuditLogPanel() {
               ]}
             />
           </div>
+          <div className="sm:w-40">
+            <label
+              htmlFor="audit-from"
+              className="text-muted-foreground mb-1 block text-xs font-medium"
+            >
+              From
+            </label>
+            <Input
+              id="audit-from"
+              type="date"
+              inputSize="sm"
+              value={filters.dateFrom ?? ""}
+              onChange={(e) => patch({ dateFrom: e.target.value || null })}
+            />
+          </div>
+          <div className="sm:w-40">
+            <label
+              htmlFor="audit-to"
+              className="text-muted-foreground mb-1 block text-xs font-medium"
+            >
+              To
+            </label>
+            <Input
+              id="audit-to"
+              type="date"
+              inputSize="sm"
+              value={filters.dateTo ?? ""}
+              onChange={(e) => patch({ dateTo: e.target.value || null })}
+            />
+          </div>
           <div className="flex-1 sm:min-w-48">
             <label className="text-muted-foreground mb-1 block text-xs font-medium">Search</label>
             <Input
@@ -213,6 +245,22 @@ export function AuditLogPanel() {
               onChange={(e) => patch({ search: e.target.value || null })}
             />
           </div>
+        </div>
+
+        {/* Downloads the SAME range the table is showing — a file that disagrees
+            with the screen above it is worse than no file. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-xs">
+            {filters.dateFrom || filters.dateTo
+              ? `Showing ${filters.dateFrom || "the beginning"} to ${filters.dateTo || "today"}.`
+              : "Showing all activity."}
+          </p>
+          <ReportDownloadButtons
+            datasets={["audit_log"]}
+            dateFrom={filters.dateFrom ?? null}
+            dateTo={filters.dateTo ?? null}
+            filename={`activity-log${filters.dateFrom ? `-from-${filters.dateFrom}` : ""}${filters.dateTo ? `-to-${filters.dateTo}` : ""}`}
+          />
         </div>
 
         {isLoading ? (

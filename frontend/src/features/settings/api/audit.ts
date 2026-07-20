@@ -11,7 +11,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { gqlRequest } from "@/lib/graphql/client";
-import type { AuditAction, ID, ISODateTime } from "@/types";
+import type { AuditAction, ID, ISODate, ISODateTime } from "@/types";
 import type { PageInfo } from "./users";
 
 /** `changes` is a {field: [before, after]} diff. Values are already JSON-safe. */
@@ -37,6 +37,13 @@ export interface AuditLogFilters {
   action?: AuditAction | null;
   entityType?: string | null;
   search?: string | null;
+  /**
+   * Local calendar dates. The server widens them to the business's own day
+   * boundaries in UTC — `createdAt` is an instant, so a bare date comparison
+   * would drop everything that happened after midnight on the end date.
+   */
+  dateFrom?: ISODate | null;
+  dateTo?: ISODate | null;
 }
 
 const AUDIT_LOGS_QUERY = /* GraphQL */ `
@@ -45,8 +52,17 @@ const AUDIT_LOGS_QUERY = /* GraphQL */ `
     $action: AuditAction
     $entityType: String
     $search: String
+    $dateFrom: Date
+    $dateTo: Date
   ) {
-    auditLogs(page: $page, action: $action, entityType: $entityType, search: $search) {
+    auditLogs(
+      page: $page
+      action: $action
+      entityType: $entityType
+      search: $search
+      dateFrom: $dateFrom
+      dateTo: $dateTo
+    ) {
       items {
         id
         action
@@ -90,12 +106,16 @@ export function useAuditLogs(
           action: AuditAction | null;
           entityType: string | null;
           search: string | null;
+          dateFrom: ISODate | null;
+          dateTo: ISODate | null;
         }
       >(AUDIT_LOGS_QUERY, {
         page: { page, limit: PAGE_SIZE },
         action: filters.action ?? null,
         entityType: filters.entityType?.trim() || null,
         search: filters.search?.trim() || null,
+        dateFrom: filters.dateFrom || null,
+        dateTo: filters.dateTo || null,
       });
       return data.auditLogs;
     },

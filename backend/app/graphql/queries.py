@@ -151,7 +151,7 @@ from app.services.retention import RetentionService
 from app.services.storage_stats import StorageStatsService
 from app.services.templates import TemplateService
 from app.services.user import UserService
-from app.utils.dates import today_in
+from app.utils.dates import end_of_day, start_of_day, today_in
 from app.utils.pagination import PageInput as ServicePage_
 
 log = logging.getLogger(__name__)
@@ -1332,6 +1332,8 @@ class Query:
         entity_id: strawberry.ID | None = None,
         action: AuditAction | None = None,  # type: ignore[valid-type]
         search: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> AuditLogPage:
         from app.utils.pagination import paginate
 
@@ -1342,6 +1344,14 @@ class Query:
         svc.require(Permission.AUDIT_READ)
 
         stmt = select(AuditLog).where(AuditLog.business_id == svc.scope_id)  # TENANCY BOUNDARY
+        # created_at is an INSTANT, so a bare date comparison would silently drop
+        # everything after midnight on the end date. Widened to the business's own
+        # local day bounds, expressed in UTC -- the same rule the reports use.
+        tz = svc.get_business().timezone
+        if date_from:
+            stmt = stmt.where(col(AuditLog.created_at) >= start_of_day(date_from, tz))
+        if date_to:
+            stmt = stmt.where(col(AuditLog.created_at) < end_of_day(date_to, tz))
         if entity_type:
             stmt = stmt.where(AuditLog.entity_type == entity_type)
         if entity_id:

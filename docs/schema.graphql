@@ -1363,7 +1363,7 @@ type Query {
   export(id: ID!): ExportJobType!
 
   """The audit trail. ADMIN and above."""
-  auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null, action: AuditAction = null, search: String = null): AuditLogPage!
+  auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null, action: AuditAction = null, search: String = null, dateFrom: Date = null, dateTo: Date = null): AuditLogPage!
 }
 
 """
