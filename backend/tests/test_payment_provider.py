@@ -252,3 +252,50 @@ async def test_a_payments_export_still_generates(
 
     assert job.state.value in {"READY", "ready"}, job.error
     assert job.size_bytes > 0
+
+
+# ===========================================================================
+# Labels
+# ===========================================================================
+def test_mobile_money_reads_as_mobile_banking() -> None:
+    """The STORED value must not change -- it is on every payment and expense row
+    ever recorded -- but nobody should ever see the words "mobile money"."""
+    assert PaymentMethod.MOBILE_MONEY.value == "MOBILE_MONEY"
+    assert PaymentMethod.MOBILE_MONEY.label == "Mobile banking"
+
+
+def test_every_method_has_a_label() -> None:
+    """A missing entry would raise KeyError on an invoice, in front of a customer."""
+    for method in PaymentMethod:
+        assert method.label
+        assert "_" not in method.label
+
+
+def test_the_importer_accepts_the_word_the_app_displays(
+    ctx: ServiceContext, session: Session
+) -> None:
+    """We show "Mobile banking", so that is what someone types into a sheet.
+    Rejecting it would be a trap of our own making."""
+    header = "expense_date,amount,category,vendor_name,payment_method,provider,cash_account,reference,notes"
+    for typed in ("MOBILE_BANKING", "Mobile Banking", "mobile banking"):
+        report = ImportService(ctx).run(
+            ctx,
+            dataset="expenses",
+            filename="sheet.csv",
+            data=f"{header}\n{TODAY.isoformat()},100,,,{typed},,,,".encode(),
+            dry_run=True,
+        )
+        assert report.ok, f"{typed!r} was rejected: {[e.message for e in report.errors]}"
+
+
+def test_the_importer_still_accepts_the_stored_value(ctx: ServiceContext) -> None:
+    """Sheets exported from this app carry MOBILE_MONEY. They must round-trip."""
+    header = "expense_date,amount,category,vendor_name,payment_method,provider,cash_account,reference,notes"
+    report = ImportService(ctx).run(
+        ctx,
+        dataset="expenses",
+        filename="sheet.csv",
+        data=f"{header}\n{TODAY.isoformat()},100,,,MOBILE_MONEY,,,,".encode(),
+        dry_run=True,
+    )
+    assert report.ok, [e.message for e in report.errors]

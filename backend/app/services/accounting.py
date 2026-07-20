@@ -442,9 +442,7 @@ class AccountingService(BaseService):
         rows = [
             ExpenseGroupRow(
                 key=str(getattr(r.payment_method, "value", r.payment_method)),
-                label=str(getattr(r.payment_method, "value", r.payment_method))
-                .replace("_", " ")
-                .title(),
+                label=PaymentMethod(r.payment_method).label,
                 total=to_money(r.total),
                 count=int(r.count or 0),
             )

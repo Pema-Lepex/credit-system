@@ -46,6 +46,13 @@ export interface ExportsPanelProps {
   dateTo: ISODate | null;
 }
 
+/**
+ * Formats a browser will render in a tab. PDF opens in the built-in viewer and
+ * JSON renders as text; CSV and XLSX are handed straight to the download manager
+ * no matter what we do, so they get a Download button only.
+ */
+const VIEWABLE_FORMATS = new Set<ExportFormat>(["PDF", "JSON"]);
+
 export function ExportsPanel({ dateFrom, dateTo }: ExportsPanelProps) {
   const [isDialogOpen, setDialogOpen] = useState(false);
   const { hasPermission } = useAuth();
@@ -353,6 +360,10 @@ function ExportsTable() {
               const style = EXPORT_STATE_STYLES[job.state];
               const expiry = expiryLabel(job);
               const downloadable = job.state === "READY" && !expiry.expired;
+              // A browser can only render some of these in a tab. Offering "View"
+              // on a spreadsheet means the button can ONLY ever download, which is
+              // exactly the behaviour the button is supposed to avoid.
+              const viewable = downloadable && VIEWABLE_FORMATS.has(job.format);
 
               return (
                 <TableRow key={job.id}>
@@ -394,15 +405,17 @@ function ExportsTable() {
                     <div className="flex items-center justify-end gap-2">
                       {downloadable ? (
                         <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            leftIcon={<Eye />}
-                            isLoading={viewing === job.id}
-                            onClick={() => void view(job)}
-                          >
-                            View
-                          </Button>
+                          {viewable ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              leftIcon={<Eye />}
+                              isLoading={viewing === job.id}
+                              onClick={() => void view(job)}
+                            >
+                              View
+                            </Button>
+                          ) : null}
                           <Button
                             variant="outline"
                             size="sm"

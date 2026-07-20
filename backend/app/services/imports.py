@@ -389,6 +389,14 @@ VENDOR_COLUMNS: tuple[Column, ...] = (
     Column("notes", "Notes", example="Delivers on Tuesdays"),
 )
 
+#: Spellings we accept for a payment method beyond the enum's own values.
+#: Keyed on the normalised form (upper case, spaces -> underscores).
+_METHOD_ALIASES: dict[str, str] = {
+    "MOBILE_BANKING": "MOBILE_MONEY",
+    "MOBILE_BANK": "MOBILE_MONEY",
+    "MBANKING": "MOBILE_MONEY",
+}
+
 EXPENSE_COLUMNS: tuple[Column, ...] = (
     Column(
         "expense_date",
@@ -425,7 +433,10 @@ EXPENSE_COLUMNS: tuple[Column, ...] = (
     Column(
         "payment_method",
         "Method",
-        help="CASH, BANK_TRANSFER, CARD, MOBILE_MONEY, CHEQUE or OTHER. Blank means CASH.",
+        help=(
+            "CASH, BANK_TRANSFER, CARD, MOBILE_BANKING, CHEQUE or OTHER. "
+            "Blank means CASH."
+        ),
         example="CASH",
     ),
     Column(
@@ -1307,8 +1318,13 @@ class ImportService(BaseService):
         method = PaymentMethod.CASH
         raw_method = get.text("payment_method", max_length=20)
         if raw_method:
+            key = raw_method.strip().upper().replace(" ", "_")
+            # The UI calls it "Mobile banking", so that is what someone types into a
+            # spreadsheet. Rejecting the word we ourselves display would be a trap of
+            # our own making; the STORED value is still MOBILE_MONEY.
+            key = _METHOD_ALIASES.get(key, key)
             try:
-                method = PaymentMethod(raw_method.strip().upper().replace(" ", "_"))
+                method = PaymentMethod(key)
             except ValueError:
                 report.errors.append(
                     RowIssue(

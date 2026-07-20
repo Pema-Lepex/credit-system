@@ -256,7 +256,9 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: "Cash",
   BANK_TRANSFER: "Bank transfer",
   CARD: "Card",
-  MOBILE_MONEY: "Mobile money",
+  // The stored value stays MOBILE_MONEY — it is written on every payment and
+  // expense row ever recorded. Mirrors PaymentMethod.label in the backend enum.
+  MOBILE_MONEY: "Mobile banking",
   CHEQUE: "Cheque",
   OTHER: "Other",
 };

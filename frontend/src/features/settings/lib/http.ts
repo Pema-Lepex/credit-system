@@ -181,36 +181,59 @@ export async function downloadFile(path: string, fallbackFilename: string): Prom
  * the bytes out from under the tab before it has finished loading them.
  */
 export async function viewFile(path: string): Promise<void> {
-  const response = await authedFetch((token) =>
-    fetch(`${API_URL}${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    }),
-  );
+  // THE TAB IS OPENED HERE, SYNCHRONOUSLY, BEFORE ANY await. Two separate reasons,
+  // and the first one is why "View" used to download every single time:
+  //
+  //  1. `window.open(url, "_blank", "noopener")` returns null BY SPECIFICATION —
+  //     not only when a popup is blocked. The old code read that null as "popup
+  //     blocked" and fell through to an <a download> click, so View silently
+  //     downloaded the file on every browser, every time.
+  //
+  //  2. Even without that, calling window.open AFTER an await puts it outside the
+  //     user gesture, and popup blockers refuse it.
+  //
+  // `noopener` is dropped deliberately: the tab is handed a same-origin blob: URL
+  // we created ourselves, not untrusted third-party content, so there is no
+  // tabnabbing surface to defend against — and we need the handle to navigate it.
+  const tab = window.open("about:blank", "_blank");
 
-  if (!response.ok) {
-    throw new HttpError(
-      await messageFromResponse(
-        response,
-        response.status === 410
-          ? "This file has expired and is no longer available."
-          : "Could not open the file.",
-      ),
-      response.status,
+  try {
+    const response = await authedFetch((token) =>
+      fetch(`${API_URL}${path}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      }),
     );
-  }
 
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const opened = window.open(objectUrl, "_blank", "noopener");
-  if (!opened) {
-    // Popup blocked: fall back to a download so the click still does something.
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = "";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    if (!response.ok) {
+      throw new HttpError(
+        await messageFromResponse(
+          response,
+          response.status === 410
+            ? "This file has expired and is no longer available."
+            : "Could not open the file.",
+        ),
+        response.status,
+      );
+    }
+
+    if (!tab) {
+      // A genuine popup block. SAY SO rather than downloading instead — starting a
+      // download the user did not ask for is precisely the bug above.
+      throw new HttpError(
+        "Your browser blocked the new tab. Allow pop-ups for this site, or use Download instead.",
+        0,
+      );
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    tab.location.href = objectUrl;
+
+    // Give the tab time to fetch the bytes before releasing them.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    // Never strand a blank tab behind a failure.
+    tab?.close();
+    throw error;
   }
-  // Give the new tab time to fetch the bytes before releasing them.
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }

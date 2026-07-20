@@ -76,9 +76,34 @@ class PaymentMethod(str, Enum):
     CASH = "CASH"
     BANK_TRANSFER = "BANK_TRANSFER"
     CARD = "CARD"
+    #: STORED VALUE, NOT A LABEL. Reads "Mobile banking" everywhere a person sees
+    #: it -- see ``label`` below. The stored string stays MOBILE_MONEY because it is
+    #: written on every payment and expense row ever recorded; renaming it would be
+    #: a data migration and a broken import file, to change one word on screen.
     MOBILE_MONEY = "MOBILE_MONEY"
     CHEQUE = "CHEQUE"
     OTHER = "OTHER"
+
+    @property
+    def label(self) -> str:
+        """The name a person reads.
+
+        Exists because five places were doing ``value.replace("_", " ").title()``,
+        which is fine for CASH and wrong the moment a label is not just its enum
+        name prettied up. Every human-facing surface -- invoices, receipts,
+        statements, reports -- now asks here, so the wording changes in ONE place.
+        """
+        return _PAYMENT_METHOD_LABELS[self]
+
+
+_PAYMENT_METHOD_LABELS: dict[PaymentMethod, str] = {
+    PaymentMethod.CASH: "Cash",
+    PaymentMethod.BANK_TRANSFER: "Bank transfer",
+    PaymentMethod.CARD: "Card",
+    PaymentMethod.MOBILE_MONEY: "Mobile banking",
+    PaymentMethod.CHEQUE: "Cheque",
+    PaymentMethod.OTHER: "Other",
+}
 
 
 class ExpenseFrequency(str, Enum):

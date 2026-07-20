@@ -104,7 +104,7 @@ VARIABLES: dict[str, TemplateVariable] = {
         # --- Payment --------------------------------------------------------
         _v("payment_amount", "Amount of the payment just received", "Nu 1,250.00"),
         _v("payment_date", "Date the payment was received", "14 July 2026"),
-        _v("payment_method", "How the payment was made", "Mobile money"),
+        _v("payment_method", "How the payment was made", "Mobile banking"),
         _v("payment_link", "Link the customer can use to pay or view the credit", "https://…"),
         # --- Business -------------------------------------------------------
         _v("business_name", "Your business name", "Tashi General Store"),

@@ -391,7 +391,7 @@ def sample_context(business: Business) -> dict[str, Any]:
         "remaining": f"{symbol} 1,200.00",
         "payment_amount": f"{symbol} 1,250.00",
         "payment_date": today.strftime("%d %B %Y"),
-        "payment_method": "Mobile money",
+        "payment_method": "Mobile banking",
         "due_date": due.strftime("%d %B %Y"),
         "days_until_due": "3",
         "credit_number": "CR-2026-0142",

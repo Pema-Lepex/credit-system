@@ -730,7 +730,7 @@ class ReportService(BaseService):
         if report.by_method:
             flow.append(Paragraph("Collections by method", st["Section"]))
             data = [["Method", "Total", "Payments"]] + [
-                [m.method.value.replace("_", " ").title(), _money(m.total, sym), str(m.count)]
+                [PaymentMethod(m.method).label, _money(m.total, sym), str(m.count)]
                 for m in report.by_method
             ]
             flow.append(_data_table(data, numeric_from=1))
@@ -832,7 +832,7 @@ class ReportService(BaseService):
                 [
                     f"{ensure_utc(p.paid_at).astimezone(get_tz(business.timezone)):%d %b %Y}",
                     p.number,
-                    PaymentMethod(p.method).value.replace("_", " ").title(),
+                    PaymentMethod(p.method).label,
                     _money(p.amount, sym),
                 ]
                 for p in payments
@@ -891,7 +891,7 @@ class ReportService(BaseService):
                     # An account payment settles the balance, not one invoice --
                     # so say that, rather than inventing a credit number.
                     ("Against", credit.number if credit else "Account balance"),
-                    ("Method", PaymentMethod(payment.method).value.replace("_", " ").title()),
+                    ("Method", PaymentMethod(payment.method).label),
                 ],
             ),
             Spacer(1, 7 * mm),
