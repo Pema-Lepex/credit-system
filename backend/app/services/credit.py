@@ -57,6 +57,7 @@ from app.models.enums import AuditAction, CreditStatus, ItemKind, LedgerEntryTyp
 from app.models.types import quantize_money
 from app.services.base import BaseService, ServiceContext
 from app.services.customer import recompute_aggregates, recompute_credit_score
+from app.services.notification import NotificationService
 from app.storage.service import StorageService
 from app.utils.dates import today_in
 from app.utils.numbering import next_credit_number
@@ -981,6 +982,13 @@ class CreditService(BaseService):
 
         Called nightly by the scheduler. This is why OVERDUE is a stored status
         rather than a computed one -- see enums.CreditStatus.
+
+        Each promotion also raises an IN-APP notification. That is deliberate and
+        independent of email: a credit going overdue is the single most important
+        thing the owner needs to know, and it must surface in the notification
+        centre even when the mail provider is misconfigured, the customer has no
+        email address, or delivery fails outright. Email is a delivery channel;
+        the notification centre is the record.
         """
         stmt = select(Credit).where(
             Credit.business_id == business_id,
@@ -990,11 +998,25 @@ class CreditService(BaseService):
             Credit.due_date < today,
             Credit.remaining_amount > ZERO,
         )
+        notifications = NotificationService(self.session)
+        business = self.session.get(Business, business_id)
+        symbol = business.currency_symbol if business else ""
+
         promoted = 0
         for credit in self.session.exec(stmt).all():
             credit.status = CreditStatus.OVERDUE
             self.session.add(credit)
             promoted += 1
+
+            customer = self.session.get(Customer, credit.customer_id)
+            notifications.notify_credit_overdue(
+                business_id,
+                customer_name=customer.name if customer else "A customer",
+                amount=f"{symbol}{credit.remaining_amount}",
+                credit_id=credit.id,
+                credit_number=credit.number,
+                days_overdue=(today - credit.due_date).days,
+            )
         return promoted
 
     def verify_integrity(self, *, business_id: str) -> list[dict[str, Any]]:

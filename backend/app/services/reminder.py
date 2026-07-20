@@ -284,14 +284,6 @@ class ReminderService(BaseService):
     async def _send_owner_digest(
         self, business: Business, reminders: list[ScheduledReminder], result: SweepResult
     ) -> None:
-        owner_email = business.email
-        if not owner_email:
-            for reminder in reminders:
-                reminder.status = ReminderStatus.SKIPPED
-                self.session.add(reminder)
-                result.skipped += 1
-            return
-
         lines: list[str] = []
         total = Decimal("0")
         by_credit: dict[str, ScheduledReminder] = {}
@@ -314,6 +306,35 @@ class ReminderService(BaseService):
                 f"{customer.phone or '-'}"
             )
 
+        # The IN-APP notification comes FIRST, and unconditionally.
+        #
+        # This used to live after the email send, and only on the customer path --
+        # which meant the owner's own digest produced no notification at all, and a
+        # shop with no business.email (or with W3Forms, which cannot reach customers)
+        # got total silence from the notification centre. The reminder centre is the
+        # product's core promise; it cannot be a side effect of SMTP working.
+        # Email is a channel, the notification is the record.
+        if lines:
+            NotificationService(self.session).notify_due_digest(
+                business.id,
+                record_count=len(lines),
+                total=f"{business.currency_symbol}{total}",
+                earliest_due=min(
+                    (c.due_date for c in map(self._credit_of, by_credit.values()) if c),
+                    default=None,
+                ),
+            )
+
+        owner_email = business.email
+        if not owner_email:
+            # Nowhere to email, but the notification above already landed, so the
+            # owner still finds out. Mark SKIPPED rather than FAILED: nothing broke.
+            for reminder in reminders:
+                reminder.status = ReminderStatus.SKIPPED
+                self.session.add(reminder)
+                result.skipped += 1
+            return
+
         # owner_recipient=True: we KNOW this is the owner's inbox, so a relay-only
         # provider (W3Forms) can legitimately deliver it. Don't make it guess.
         outcome = await EmailService(self.session).send_templated(
@@ -334,6 +355,9 @@ class ReminderService(BaseService):
         )
         for reminder in by_credit.values():
             self._record(reminder, outcome.success, outcome.error, result)
+
+    def _credit_of(self, reminder: ScheduledReminder) -> Credit | None:
+        return self.session.get(Credit, reminder.credit_id)
 
     def _record(
         self, reminder: ScheduledReminder, success: bool, error: str | None, result: SweepResult

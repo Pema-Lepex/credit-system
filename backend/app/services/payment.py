@@ -36,6 +36,7 @@ from app.services.base import BaseService, ServiceContext
 from app.services.credit import CreditService, apply_settlement
 from app.services.customer import recompute_aggregates, recompute_credit_score
 from app.services.ledger import LedgerService
+from app.services.notification import NotificationService
 from app.storage.service import StorageService
 from app.utils.dates import ensure_utc, today_in
 from app.utils.numbering import next_payment_number
@@ -232,6 +233,24 @@ class PaymentService(BaseService):
 
         self.session.flush()
         self._sync_customer(credit.customer_id)
+
+        # Notification centre entry. The audit log below is for forensics -- nobody
+        # reads it day to day. This is the line staff actually see, and it is the
+        # counterpart to the overdue alert: money out, money in.
+        customer = self.session.get(Customer, credit.customer_id)
+        NotificationService(self.session).notify_payment_received(
+            self.scope_id,
+            customer_name=customer.name if customer else "A customer",
+            amount=f"{business.currency_symbol}{amount}",
+            credit_id=credit.id,
+            credit_number=credit.number,
+            payment_id=payment.id,
+            remaining=(
+                f"{business.currency_symbol}{credit.remaining_amount}"
+                if credit.remaining_amount > ZERO
+                else None
+            ),
+        )
 
         self.audit(
             AuditAction.CREATE,

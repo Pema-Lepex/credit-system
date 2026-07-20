@@ -300,6 +300,43 @@ class NotificationService:
             },
         )
 
+    def notify_due_digest(
+        self,
+        business_id: str,
+        *,
+        record_count: int,
+        total: Decimal | str,
+        earliest_due: date | None = None,
+        user_id: str | None = None,
+    ) -> Notification:
+        """The owner's "these credits are coming due" alert.
+
+        Raised by the reminder sweep BEFORE it tries to email, so the owner sees it
+        whether or not mail is configured -- see ReminderService._send_owner_digest.
+
+        Reuses REMINDER_SENT rather than adding a NotificationKind member: a new enum
+        value means a migration plus a frontend icon-map entry, and this is the same
+        thing from the reader's point of view -- a reminder about due credits.
+        """
+        plural = "s" if record_count != 1 else ""
+        when = f" from {earliest_due.strftime('%d %b')}" if earliest_due else ""
+        return self.create(
+            business_id,
+            NotificationKind.REMINDER_SENT,
+            title=f"{record_count} credit{plural} due{when}",
+            message=(
+                f"{record_count} credit{plural} totalling {total} {'are' if record_count != 1 else 'is'} "
+                f"coming due. Open Credits to review and follow up."
+            ),
+            user_id=user_id,
+            link={"url": "/credits"},
+            meta={
+                "record_count": record_count,
+                "total": str(total),
+                "earliest_due": earliest_due.isoformat() if earliest_due else None,
+            },
+        )
+
     def notify_data_deletion_warning(
         self,
         business_id: str,
