@@ -175,7 +175,9 @@ export function useCommitImport(dataset: ImportDataset) {
       // show up with an empty category column until a reload.
       const keys: Record<ImportDataset, readonly (readonly unknown[])[]> = {
         customers: [customerKeys.all],
-        credits: [creditKeys.all, customerKeys.all],
+        // A credit row that names a SKU decrements that product's stock, so the
+        // catalog goes stale too — same reason the credit FORM invalidates it.
+        credits: [creditKeys.all, customerKeys.all, catalogKeys.products, dashboardKeys.all],
         products: [catalogKeys.products, catalogKeys.categories],
         services: [catalogKeys.services, catalogKeys.categories],
         vendors: [vendorKeys.all, expenseKeys.all],

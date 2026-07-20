@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { catalogKeys } from "@/features/catalog/queries";
 import { parseApiError } from "@/features/credits/lib/errors";
 import {
   CANCEL_CREDIT_MUTATION,
@@ -33,6 +34,12 @@ interface CreditRef {
  * ledger and in the customer's outstanding balance. Invalidating only the credit
  * list would leave a stale "Total overdue" on the very screen the owner checks
  * first, which is worse than a spinner.
+ *
+ * IT ALSO MOVES STOCK. Writing a credit for a catalog product decrements that
+ * product server-side (CreditService._decrement_stock), so a cached Products page
+ * keeps showing the OLD count until something forces a refetch. That looked
+ * exactly like "stock is not reducing" — the deduction had happened, the screen
+ * just never asked again.
  */
 function useInvalidateCreditWrites() {
   const queryClient = useQueryClient();
@@ -42,6 +49,7 @@ function useInvalidateCreditWrites() {
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.all });
     void queryClient.invalidateQueries({ queryKey: paymentKeys.all });
     void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    void queryClient.invalidateQueries({ queryKey: catalogKeys.products });
     if (creditId) {
       void queryClient.invalidateQueries({ queryKey: creditKeys.detail(creditId) });
       void queryClient.invalidateQueries({ queryKey: creditKeys.paymentHistory(creditId) });

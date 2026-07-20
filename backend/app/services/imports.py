@@ -177,6 +177,17 @@ CREDIT_COLUMNS: tuple[Column, ...] = (
         help="What was taken on credit. One row is one credit record.",
         example="Rice 5kg",
     ),
+    Column(
+        "sku",
+        "Product SKU",
+        help=(
+            "Fill this in to link the row to a product you sell -- its stock is "
+            "then reduced, exactly as if you had written the credit by hand. Leave "
+            "it blank for a one-off item, or when loading OLD credits whose stock "
+            "was taken long ago."
+        ),
+        example="RICE-5",
+    ),
     Column("quantity", "Quantity", help="Up to 3 decimals. Blank means 1.", example="2"),
     Column(
         "unit_price",
@@ -1028,9 +1039,23 @@ class ImportService(BaseService):
             digits = _phone_key(customer.phone)
             if digits:
                 by_phone.setdefault(digits, []).append(customer)
+        # Products, for the optional `sku` column that links a row to the catalog
+        # and moves its stock. Matched case-insensitively -- nobody types a SKU's
+        # casing consistently into a spreadsheet.
+        from app.models.catalog import Product
+
+        products = self.session.exec(
+            select(Product).where(
+                Product.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(Product.deleted_at).is_(None),
+                col(Product.sku).is_not(None),
+            )
+        ).all()
+
         return {
             "by_code": {c.code.upper(): c for c in customers},
             "by_phone": by_phone,
+            "products_by_sku": {p.sku.strip().lower(): p for p in products if p.sku},
             "today": today_in(self.get_business().timezone),
         }
 
@@ -1415,11 +1440,38 @@ class ImportService(BaseService):
             )
             return None
 
+        # LINKING TO THE CATALOG IS OPT-IN, PER ROW.
+        #
+        # A blank `sku` keeps the original behaviour: a CUSTOM line, tied to no
+        # product, moving no stock. That is what you want when backfilling a paper
+        # ledger -- re-deducting stock for sales that happened months ago would
+        # leave every count wrong by the size of your own history.
+        #
+        # Filling `sku` in says "this is a sale I am registering now": the row is
+        # linked to the product and CreditService.create decrements it, exactly as
+        # the credit form does.
+        product = None
+        sku = get.text("sku", max_length=64)
+        if sku:
+            product = ctx["products_by_sku"].get(sku.strip().lower())
+            if product is None:
+                report.errors.append(
+                    RowIssue(
+                        line,
+                        "sku",
+                        f"You have no product with the SKU '{sku}'. Check the "
+                        f"spelling, or leave the column blank to record this as a "
+                        f"one-off item that does not touch stock.",
+                    )
+                )
+                return None
+
         item = CreditItemInput(
             name=item_name,
             quantity=quantity,
             unit_price=unit_price,
-            kind=ItemKind.CUSTOM,  # a historical row is not tied to a catalog product
+            kind=ItemKind.PRODUCT if product else ItemKind.CUSTOM,
+            product_id=product.id if product else None,
             description=get.text("item_description", max_length=500),
             unit=get.text("unit", max_length=20) or "pcs",
             discount_amount=discount,
