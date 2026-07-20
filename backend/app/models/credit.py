@@ -216,6 +216,15 @@ class Payment(TenantEntity, table=True):
         default=None, foreign_key="user.id", max_length=32, ondelete="SET NULL"
     )
 
+    #: Which pot the money went into (Phase 2). OPTIONAL and nullable: every payment
+    #: recorded before cash accounts existed has NULL here and stays perfectly valid,
+    #: and a shop that does not track accounts never has to pick one. Cash account
+    #: balances are derived by summing this column -- see models/cash_account.py.
+    #: No database-level FK, deliberately -- adding one to this existing table would
+    #: have required an Alembic batch rebuild of `payment`, the most valuable table
+    #: in the product. See the matching note in models/expense.py.
+    cash_account_id: str | None = Field(default=None, index=True, max_length=32)
+
     # --- Void (instead of edit/delete) --------------------------------------
     # Voiding reverses the payment's effect on the credit and the customer's
     # aggregates, but the row survives so the history stays truthful.

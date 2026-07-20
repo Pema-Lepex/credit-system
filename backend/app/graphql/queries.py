@@ -35,6 +35,7 @@ from app.graphql.context import GraphQLContext
 from app.graphql.inputs import (
     CreditFilterInput,
     CustomerFilterInput,
+    ExpenseFilterInput,
     PageInput,
     PaymentFilterInput,
     ProductFilterInput,
@@ -68,6 +69,25 @@ from app.graphql.types import (
     Dashboard,
     DashboardSummary,
     EmailTemplateType,
+    ExpenseCategoryType,
+    ExpenseGroupRow,
+    ExpensePage,
+    ExpenseReportType,
+    ExpenseType,
+    AgingBucketType,
+    AgingCustomerType,
+    AgingReportType,
+    CashAccountType,
+    CashFlowRowType,
+    CashFlowType,
+    DashboardAccountingType,
+    ProfitLossType,
+    TaxRateRowType,
+    TaxSummaryType,
+    RecurringExpensePage,
+    RecurringExpenseType,
+    VendorPage,
+    VendorType,
     ExportJobPage,
     ExportJobType,
     MethodBreakdown,
@@ -107,12 +127,18 @@ from app.models.enums import (
 )
 from app.models.file import FileAsset
 from app.models.retention import AuditLog
+from app.models.enums import PaymentMethod
+from app.services.accounting import AccountingService
 from app.services.analytics import AnalyticsService
+from app.services.cash_account import CashAccountService
+from app.services.recurring import RecurringExpenseService
+from app.services.vendor import VendorService
 from app.services.base import BaseService, ServiceContext
 from app.services.business import BusinessService
 from app.services.catalog import CategoryService, ProductService, ServiceItemService
 from app.services.credit import CreditFilter, CreditService
 from app.services.customer import CustomerService
+from app.services.expense import ExpenseCategoryService, ExpenseFilter, ExpenseService
 from app.services.export import ExportService
 from app.services.ledger import LedgerService
 from app.services.notification import NotificationService
@@ -452,6 +478,129 @@ class Query:
         )
 
     # =====================================================================
+    # Expenses (money out)
+    # =====================================================================
+    @strawberry.field
+    def expense(self, info: strawberry.Info, id: strawberry.ID) -> ExpenseType:
+        ctx = _ctx(info)
+        return m.to_expense(ctx.session, ExpenseService(ctx).get(str(id)))
+
+    @strawberry.field
+    def expenses(
+        self,
+        info: strawberry.Info,
+        filter: ExpenseFilterInput | None = None,
+        page: PageInput | None = None,
+        sort: SortInput | None = None,
+    ) -> ExpensePage:
+        ctx = _ctx(info)
+        sort_by, sort_desc = _sort(sort, "expense_date")
+
+        result = ExpenseService(ctx).list(
+            _to_expense_filter(filter), _page(page), sort_by=sort_by, sort_desc=sort_desc
+        )
+        return ExpensePage(
+            items=[m.to_expense(ctx.session, e) for e in result.items],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field(description="Trashed expenses, newest first.")
+    def deleted_expenses(
+        self, info: strawberry.Info, page: PageInput | None = None
+    ) -> ExpensePage:
+        ctx = _ctx(info)
+        result = ExpenseService(ctx).list_deleted(_page(page))
+        return ExpensePage(
+            items=[m.to_expense(ctx.session, e) for e in result.items],
+            page_info=page_info(result),
+        )
+
+    @strawberry.field
+    def expense_categories(
+        self,
+        info: strawberry.Info,
+        search: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[ExpenseCategoryType]:
+        ctx = _ctx(info)
+        result = ExpenseCategoryService(ctx).list(
+            ServicePage_(page=1, limit=100), search=search, is_active=is_active
+        )
+        return [m.to_expense_category(c) for c in result.items]
+
+    # =====================================================================
+    # Vendors, cash accounts, recurring expenses (Phase 2)
+    # =====================================================================
+    @strawberry.field
+    def vendor(self, info: strawberry.Info, id: strawberry.ID) -> VendorType:
+        return m.to_vendor(VendorService(_ctx(info)).get(str(id)))
+
+    @strawberry.field
+    def vendors(
+        self,
+        info: strawberry.Info,
+        search: str | None = None,
+        is_active: bool | None = None,
+        page: PageInput | None = None,
+        sort: SortInput | None = None,
+    ) -> VendorPage:
+        ctx = _ctx(info)
+        sort_by, sort_desc = _sort(sort, "name")
+        result = VendorService(ctx).list(
+            _page(page),
+            search=search,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_desc=sort_desc if sort else False,
+        )
+        return VendorPage(
+            items=[m.to_vendor(v) for v in result.items], page_info=page_info(result)
+        )
+
+    @strawberry.field(
+        description="Cash accounts with their derived balances, cheapest ordering first."
+    )
+    def cash_accounts(
+        self, info: strawberry.Info, is_active: bool | None = None
+    ) -> list[CashAccountType]:
+        ctx = _ctx(info)
+        return [
+            m.to_cash_account(b)
+            for b in CashAccountService(ctx).list_with_balances(is_active=is_active)
+        ]
+
+    @strawberry.field
+    def cash_account(self, info: strawberry.Info, id: strawberry.ID) -> CashAccountType:
+        ctx = _ctx(info)
+        return m.to_cash_account(CashAccountService(ctx).balance_of(str(id)))
+
+    @strawberry.field
+    def recurring_expense(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> RecurringExpenseType:
+        ctx = _ctx(info)
+        return m.to_recurring_expense(
+            ctx.session, RecurringExpenseService(ctx).get(str(id))
+        )
+
+    @strawberry.field
+    def recurring_expenses(
+        self,
+        info: strawberry.Info,
+        search: str | None = None,
+        is_active: bool | None = None,
+        page: PageInput | None = None,
+    ) -> RecurringExpensePage:
+        ctx = _ctx(info)
+        result = RecurringExpenseService(ctx).list(
+            _page(page), search=search, is_active=is_active
+        )
+        return RecurringExpensePage(
+            items=[m.to_recurring_expense(ctx.session, t) for t in result.items],
+            page_info=page_info(result),
+        )
+
+    # =====================================================================
     # The customer account ledger
     # =====================================================================
     @strawberry.field(
@@ -639,6 +788,14 @@ class Query:
                 MethodBreakdown(method=s.method, total=money(s.total), count=s.count)
                 for s in analytics.collections_by_method()
             ],
+            accounting=_dashboard_accounting(ctx),
+            recent_expenses=[
+                m.to_expense(session, e)
+                for e in ExpenseService(ctx).list(page=ServicePage_(page=1, limit=5)).items
+            ],
+            # The aging report's own rows, so "overdue" means the same thing here as
+            # it does on the receivables page. Top five worst.
+            overdue_customers=_overdue_customers(ctx, limit=5),
         )
 
     # =====================================================================
@@ -904,6 +1061,171 @@ class Query:
             ],
         )
 
+    @strawberry.field(
+        description="Total spending for a period, grouped by category, vendor and method."
+    )
+    def expense_report(
+        self,
+        info: strawberry.Info,
+        input: ReportInput | None = None,
+        filter: ExpenseFilterInput | None = None,
+    ) -> ExpenseReportType:
+        ctx = _ctx(info)
+        spec = input or ReportInput()
+        f = filter or ExpenseFilterInput()
+
+        data = AccountingService(ctx).expense_report(
+            ReportPeriod(spec.period),
+            start=spec.start_date,
+            end=spec.end_date,
+            category_id=str(f.category_id) if f.category_id else None,
+            vendor_name=f.vendor_name,
+            payment_method=(
+                [PaymentMethod(m) for m in f.payment_method] if f.payment_method else None
+            ),
+            created_by_user_id=str(f.created_by_user_id) if f.created_by_user_id else None,
+        )
+        return ExpenseReportType(
+            period=data.period,
+            start_date=data.start,
+            end_date=data.end,
+            total=money(data.total),
+            count=data.count,
+            by_category=_group_rows(data.by_category, data.total),
+            by_vendor=_group_rows(data.by_vendor, data.total),
+            by_method=_group_rows(data.by_method, data.total),
+        )
+
+    @strawberry.field(
+        description=(
+            "Cash-basis profit and loss. A management figure, not an accounting "
+            "statement -- see app/services/accounting.py."
+        )
+    )
+    def profit_loss(
+        self, info: strawberry.Info, input: ReportInput | None = None
+    ) -> ProfitLossType:
+        ctx = _ctx(info)
+        spec = input or ReportInput()
+
+        data = AccountingService(ctx).profit_loss(
+            ReportPeriod(spec.period), start=spec.start_date, end=spec.end_date
+        )
+        return ProfitLossType(
+            period=data.period,
+            start_date=data.start,
+            end_date=data.end,
+            revenue=money(data.revenue),
+            cost_of_goods_sold=money(data.cost_of_goods_sold),
+            gross_profit=money(data.gross_profit),
+            operating_expenses=money(data.operating_expenses),
+            net_profit=money(data.net_profit),
+            net_margin_pct=money(data.net_margin_pct),
+            expenses_by_category=_group_rows(
+                data.expenses_by_category, data.operating_expenses
+            ),
+            basis="Cash basis",
+        )
+
+    @strawberry.field(description="Money in against money out, bucketed over time.")
+    def cash_flow(
+        self, info: strawberry.Info, input: ReportInput | None = None
+    ) -> CashFlowType:
+        ctx = _ctx(info)
+        spec = input or ReportInput()
+
+        data = AccountingService(ctx).cash_flow(
+            ReportPeriod(spec.period), start=spec.start_date, end=spec.end_date
+        )
+        return CashFlowType(
+            period=data.period,
+            start_date=data.start,
+            end_date=data.end,
+            granularity=data.granularity,
+            total_in=money(data.total_in),
+            total_out=money(data.total_out),
+            net_flow=money(data.net_flow),
+            rows=[
+                CashFlowRowType(
+                    bucket=r.bucket,
+                    label=r.label,
+                    money_in=money(r.money_in),
+                    money_out=money(r.money_out),
+                    net=money(r.net),
+                )
+                for r in data.rows
+            ],
+        )
+
+    @strawberry.field(
+        description="Money customers owe, by how late it is. Defaults to today."
+    )
+    def aging_receivable(
+        self, info: strawberry.Info, as_at: date | None = None
+    ) -> AgingReportType:
+        ctx = _ctx(info)
+        data = AccountingService(ctx).aging_receivable(as_at=as_at)
+
+        return AgingReportType(
+            as_at=data.as_at,
+            total_outstanding=money(data.total_outstanding),
+            buckets=[
+                AgingBucketType(
+                    key=b.key,
+                    label=b.label,
+                    total=money(b.total),
+                    count=b.count,
+                    share_pct=money(b.share_of(data.total_outstanding)),
+                )
+                for b in data.buckets
+            ],
+            customers=[
+                AgingCustomerType(
+                    customer_id=strawberry.ID(c.customer_id),
+                    name=c.name,
+                    phone=c.phone,
+                    current=money(c.buckets.get("CURRENT")),
+                    days_1_to_30=money(c.buckets.get("D1_30")),
+                    days_31_to_60=money(c.buckets.get("D31_60")),
+                    days_61_to_90=money(c.buckets.get("D61_90")),
+                    days_90_plus=money(c.buckets.get("D90_PLUS")),
+                    total=money(c.total),
+                    oldest_days=c.oldest_days,
+                )
+                for c in data.customers
+            ],
+        )
+
+    @strawberry.field(description="Tax charged, grouped by rate.")
+    def tax_summary(
+        self, info: strawberry.Info, input: ReportInput | None = None
+    ) -> TaxSummaryType:
+        ctx = _ctx(info)
+        spec = input or ReportInput()
+
+        data = AccountingService(ctx).tax_summary(
+            ReportPeriod(spec.period), start=spec.start_date, end=spec.end_date
+        )
+        return TaxSummaryType(
+            period=data.period,
+            start_date=data.start,
+            end_date=data.end,
+            total_taxable=money(data.total_taxable),
+            total_tax=money(data.total_tax),
+            total_tax_on_credits=money(data.total_tax_on_credits),
+            reconciles=data.reconciles,
+            rows=[
+                TaxRateRowType(
+                    # A RATE, not money -- _plain keeps "5" from becoming "5.00".
+                    rate=str(r.rate),
+                    taxable_base=money(r.taxable_base),
+                    tax_amount=money(r.tax_amount),
+                    line_count=r.line_count,
+                )
+                for r in data.rows
+            ],
+        )
+
     # =====================================================================
     # Storage & retention
     # =====================================================================
@@ -1071,6 +1393,91 @@ def _to_payment_filter(f: PaymentFilterInput | None) -> PaymentFilter:
         min_amount=to_decimal(f.min_amount, "min_amount"),
         max_amount=to_decimal(f.max_amount, "max_amount"),
         include_voided=f.include_voided,
+    )
+
+
+def _dashboard_accounting(ctx: ServiceContext) -> DashboardAccountingType:
+    data = AccountingService(ctx).dashboard()
+    return DashboardAccountingType(
+        today_sales=money(data.today_sales),
+        today_collections=money(data.today_collections),
+        today_expenses=money(data.today_expenses),
+        outstanding_credit=money(data.outstanding_credit),
+        month_revenue=money(data.month_revenue),
+        month_expenses=money(data.month_expenses),
+        month_cogs=money(data.month_cogs),
+        net_cash_flow=money(data.net_cash_flow),
+        net_profit=money(data.net_profit),
+        expense_delta_percent=_pct(data.expense_delta_pct),
+        monthly=[
+            CashFlowRowType(
+                bucket=r.bucket,
+                label=r.label,
+                money_in=money(r.money_in),
+                money_out=money(r.money_out),
+                net=money(r.net),
+            )
+            for r in data.monthly
+        ],
+        top_expense_categories=_group_rows(
+            data.top_expense_categories, data.month_expenses
+        ),
+    )
+
+
+def _overdue_customers(ctx: ServiceContext, *, limit: int) -> list[AgingCustomerType]:
+    """The worst debts, from the aging report. Only customers who are ACTUALLY late:
+    a customer whose only credit is not due yet does not belong on this list."""
+    data = AccountingService(ctx).aging_receivable()
+    late = [c for c in data.customers if c.oldest_days > 0][:limit]
+    return [
+        AgingCustomerType(
+            customer_id=strawberry.ID(c.customer_id),
+            name=c.name,
+            phone=c.phone,
+            current=money(c.buckets.get("CURRENT")),
+            days_1_to_30=money(c.buckets.get("D1_30")),
+            days_31_to_60=money(c.buckets.get("D31_60")),
+            days_61_to_90=money(c.buckets.get("D61_90")),
+            days_90_plus=money(c.buckets.get("D90_PLUS")),
+            total=money(c.total),
+            oldest_days=c.oldest_days,
+        )
+        for c in late
+    ]
+
+
+def _group_rows(rows: list[Any], total: Any) -> list[ExpenseGroupRow]:
+    """Map accounting group rows onto the GraphQL type, computing each row's share
+    server-side so the client never parses a money string back into a number."""
+    return [
+        ExpenseGroupRow(
+            key=r.key,
+            label=r.label,
+            total=money(r.total),
+            count=r.count,
+            share_pct=money(r.share_of(total)),
+            color=r.color,
+        )
+        for r in rows
+    ]
+
+
+def _to_expense_filter(f: ExpenseFilterInput | None) -> ExpenseFilter:
+    if f is None:
+        return ExpenseFilter()
+    return ExpenseFilter(
+        search=f.search,
+        category_id=str(f.category_id) if f.category_id else None,
+        vendor_id=str(f.vendor_id) if f.vendor_id else None,
+        cash_account_id=str(f.cash_account_id) if f.cash_account_id else None,
+        vendor_name=f.vendor_name,
+        payment_method=list(f.payment_method) if f.payment_method else None,
+        date_from=f.date_from,
+        date_to=f.date_to,
+        min_amount=to_decimal(f.min_amount, "min_amount"),
+        max_amount=to_decimal(f.max_amount, "max_amount"),
+        created_by_user_id=str(f.created_by_user_id) if f.created_by_user_id else None,
     )
 
 

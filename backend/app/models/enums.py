@@ -81,6 +81,21 @@ class PaymentMethod(str, Enum):
     OTHER = "OTHER"
 
 
+class ExpenseFrequency(str, Enum):
+    """How often a RecurringExpenseTemplate fires.
+
+    Deliberately four fixed intervals rather than a cron expression. The shop owner
+    setting this up is describing the rent, the electricity bill, or a wage run --
+    "every month on the 1st" is the whole vocabulary they need, and a cron field
+    would be an invitation to typo a `*` into 43,200 expenses.
+    """
+
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+
+
 class ItemKind(str, Enum):
     PRODUCT = "PRODUCT"
     SERVICE = "SERVICE"

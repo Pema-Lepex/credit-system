@@ -77,6 +77,42 @@ def ctx(session: Session, admin: User, business: Business) -> ServiceContext:
 
 
 @pytest.fixture
+def other_business(session: Session) -> Business:
+    """A SECOND tenant, for proving the tenancy boundary holds."""
+    b = Business(
+        name="Other Shop",
+        slug="other-shop",
+        email="other@example.com",
+        currency="BTN",
+        currency_symbol="Nu.",
+        timezone="Asia/Thimphu",
+        tax_percentage=0,
+        approval_status=ApprovalStatus.APPROVED,
+    )
+    session.add(b)
+    session.commit()
+    session.refresh(b)
+    return b
+
+
+@pytest.fixture
+def other_ctx(session: Session, other_business: Business) -> ServiceContext:
+    """An admin of the OTHER business. Anything this context can reach across the
+    boundary is a tenancy bug."""
+    u = User(
+        email="other@example.com",
+        hashed_password=hash_password("Password123"),
+        full_name="Other Owner",
+        role=Role.ADMIN,
+        business_id=other_business.id,
+    )
+    session.add(u)
+    session.commit()
+    session.refresh(u)
+    return ServiceContext(session=session, user=u, business_id=other_business.id)
+
+
+@pytest.fixture
 def customer(session: Session, business: Business) -> Customer:
     c = Customer(
         business_id=business.id,

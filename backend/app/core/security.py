@@ -72,6 +72,23 @@ class Permission(str, Enum):
     PAYMENT_READ = "payment:read"
     PAYMENT_WRITE = "payment:write"
     PAYMENT_DELETE = "payment:delete"
+    # Expenses (money out). Split READ/WRITE/DELETE the same way as payments:
+    # staff record the day's spending, only an owner removes a record.
+    EXPENSE_READ = "expense:read"
+    EXPENSE_WRITE = "expense:write"
+    EXPENSE_DELETE = "expense:delete"
+    EXPENSE_CATEGORY_READ = "expense_category:read"
+    EXPENSE_CATEGORY_MANAGE = "expense_category:manage"
+    # Vendors: staff add one while recording an expense; only an owner removes one.
+    VENDOR_READ = "vendor:read"
+    VENDOR_WRITE = "vendor:write"
+    VENDOR_DELETE = "vendor:delete"
+    # Where the money lives, and the standing instructions that spend it. Both are
+    # owner-level configuration: staff pick an account, they do not create one.
+    CASH_ACCOUNT_READ = "cash_account:read"
+    CASH_ACCOUNT_MANAGE = "cash_account:manage"
+    RECURRING_EXPENSE_READ = "recurring_expense:read"
+    RECURRING_EXPENSE_MANAGE = "recurring_expense:manage"
     # Reports & exports
     REPORT_READ = "report:read"
     EXPORT_CREATE = "export:create"
@@ -98,6 +115,13 @@ _STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.CREDIT_WRITE,
         Permission.PAYMENT_READ,
         Permission.PAYMENT_WRITE,
+        Permission.EXPENSE_READ,
+        Permission.EXPENSE_WRITE,
+        Permission.EXPENSE_CATEGORY_READ,
+        Permission.VENDOR_READ,
+        Permission.VENDOR_WRITE,
+        Permission.CASH_ACCOUNT_READ,
+        Permission.RECURRING_EXPENSE_READ,
         Permission.REPORT_READ,
         Permission.SETTINGS_READ,
         Permission.STORAGE_READ,
@@ -116,6 +140,11 @@ _ADMIN_PERMISSIONS: frozenset[Permission] = _STAFF_PERMISSIONS | frozenset(
         Permission.CATALOG_DELETE,
         Permission.CREDIT_DELETE,
         Permission.PAYMENT_DELETE,
+        Permission.EXPENSE_DELETE,
+        Permission.EXPENSE_CATEGORY_MANAGE,
+        Permission.VENDOR_DELETE,
+        Permission.CASH_ACCOUNT_MANAGE,
+        Permission.RECURRING_EXPENSE_MANAGE,
         Permission.EXPORT_CREATE,
         Permission.SETTINGS_WRITE,
         Permission.TEMPLATE_WRITE,

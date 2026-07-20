@@ -32,6 +32,11 @@ from app.models.ledger import LedgerEntry
 from app.models.statement import Statement
 from app.models.customer import Customer
 from app.models.enums import ApprovalStatus, ArchiveState, ExportState
+from app.models.cash_account import CashAccount
+from app.models.expense import Expense, ExpenseCategory
+from app.models.recurring import RecurringExpenseTemplate
+from app.models.vendor import Vendor
+from app.services.cash_account import CashAccountBalance
 from app.models.file import FileAsset
 from app.models.platform import PlatformSetting
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
@@ -48,8 +53,13 @@ from app.graphql.types import (
     CreditItemType,
     CreditType,
     CustomerType,
+    CashAccountType,
     EmailTemplateType,
+    ExpenseCategoryType,
+    ExpenseType,
     ExportJobType,
+    RecurringExpenseType,
+    VendorType,
     FileAssetType,
     NotificationType,
     PaymentType,
@@ -310,6 +320,128 @@ def _category_of(session: Session, category_id: str | None) -> CategoryType | No
         return None
     category = session.get(Category, category_id)
     return to_category(category) if category is not None else None
+
+
+def to_expense_category(category: ExpenseCategory) -> ExpenseCategoryType:
+    return ExpenseCategoryType(
+        id=strawberry.ID(category.id),
+        name=category.name,
+        description=category.description,
+        color=category.color,
+        is_active=category.is_active,
+        sort_order=category.sort_order,
+        created_at=category.created_at,
+    )
+
+
+def _expense_category_of(
+    session: Session, category_id: str | None
+) -> ExpenseCategoryType | None:
+    """Same identity-map trick as ``_category_of``: listing 100 expenses across 5
+    categories issues 5 queries, not 100."""
+    if not category_id:
+        return None
+    category = session.get(ExpenseCategory, category_id)
+    return to_expense_category(category) if category is not None else None
+
+
+def to_vendor(vendor: Vendor) -> VendorType:
+    return VendorType(
+        id=strawberry.ID(vendor.id),
+        name=vendor.name,
+        phone=vendor.phone,
+        email=vendor.email,
+        address=vendor.address,
+        notes=vendor.notes,
+        is_active=vendor.is_active,
+        created_at=vendor.created_at,
+    )
+
+
+def to_cash_account(balance: CashAccountBalance) -> CashAccountType:
+    """Takes the BALANCE wrapper, not the row -- the balance is derived, and a
+    mapper that took the bare account could only report a zero it made up."""
+    account = balance.account
+    return CashAccountType(
+        id=strawberry.ID(account.id),
+        name=account.name,
+        description=account.description,
+        opening_balance=money(account.opening_balance),
+        money_in=money(balance.money_in),
+        money_out=money(balance.money_out),
+        balance=money(balance.balance),
+        is_active=account.is_active,
+        sort_order=account.sort_order,
+        created_at=account.created_at,
+    )
+
+
+def _cash_account_name(session: Session, account_id: str | None) -> str | None:
+    if not account_id:
+        return None
+    account = session.get(CashAccount, account_id)
+    return account.name if account is not None else None
+
+
+def to_recurring_expense(
+    session: Session, template: RecurringExpenseTemplate
+) -> RecurringExpenseType:
+    return RecurringExpenseType(
+        id=strawberry.ID(template.id),
+        name=template.name,
+        category_id=strawberry.ID(template.category_id) if template.category_id else None,
+        category=_expense_category_of(session, template.category_id),
+        vendor_id=strawberry.ID(template.vendor_id) if template.vendor_id else None,
+        vendor_name=template.vendor_name,
+        cash_account_id=(
+            strawberry.ID(template.cash_account_id) if template.cash_account_id else None
+        ),
+        cash_account_name=_cash_account_name(session, template.cash_account_id),
+        amount=money(template.amount),
+        payment_method=template.payment_method,
+        frequency=template.frequency,
+        next_run=template.next_run,
+        end_date=template.end_date,
+        is_active=template.is_active,
+        notes=template.notes,
+        last_run_at=template.last_run_at,
+        created_at=template.created_at,
+    )
+
+
+def to_expense(session: Session, expense: Expense) -> ExpenseType:
+    created_by = (
+        session.get(User, expense.created_by_user_id) if expense.created_by_user_id else None
+    )
+    return ExpenseType(
+        id=strawberry.ID(expense.id),
+        category_id=strawberry.ID(expense.category_id) if expense.category_id else None,
+        category=_expense_category_of(session, expense.category_id),
+        amount=money(expense.amount),
+        vendor_id=strawberry.ID(expense.vendor_id) if expense.vendor_id else None,
+        vendor_name=expense.vendor_name,
+        cash_account_id=(
+            strawberry.ID(expense.cash_account_id) if expense.cash_account_id else None
+        ),
+        cash_account_name=_cash_account_name(session, expense.cash_account_id),
+        recurring_template_id=(
+            strawberry.ID(expense.recurring_template_id)
+            if expense.recurring_template_id
+            else None
+        ),
+        is_generated=expense.recurring_template_id is not None,
+        payment_method=expense.payment_method,
+        expense_date=expense.expense_date,
+        reference=expense.reference,
+        notes=expense.notes,
+        receipt_url=_url(session, expense.receipt_file_id),
+        created_by_user_id=(
+            strawberry.ID(expense.created_by_user_id) if expense.created_by_user_id else None
+        ),
+        created_by_name=created_by.full_name if created_by else None,
+        created_at=expense.created_at,
+        updated_at=expense.updated_at,
+    )
 
 
 def to_product(session: Session, product: Product) -> ProductType:

@@ -25,6 +25,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 import strawberry
@@ -46,8 +47,13 @@ from app.graphql.inputs import (
     CreditItemInput,
     CreditUpdateInput,
     CustomerInput,
+    CashAccountInput,
     EmailTemplateInput,
+    ExpenseCategoryInput,
+    ExpenseInput,
     ExportInput,
+    RecurringExpenseInput,
+    VendorInput,
     LoginInput,
     PaymentInput,
     PlatformSettingsInput,
@@ -70,9 +76,15 @@ from app.graphql.types import (
     CategoryType,
     CreditType,
     CustomerType,
+    CashAccountType,
     EmailTemplateType,
     EmailTemplateKind,
+    ExpenseCategoryType,
+    ExpenseType,
     ExportJobType,
+    GenerationResultType,
+    RecurringExpenseType,
+    VendorType,
     MaintenanceResult,
     WhatsAppLinkType,
     MessagePayload,
@@ -86,6 +98,10 @@ from app.graphql.types import (
 )
 from app.models.business import Business
 from app.models.enums import ApprovalStatus, ExportFormat, ItemKind, PaymentMethod
+from app.models.enums import ExpenseFrequency as ExpenseFrequencyEnum
+from app.services.cash_account import CashAccountBalance, CashAccountService
+from app.services.recurring import RecurringExpenseService
+from app.services.vendor import VendorService
 from app.services.auth import AuthService
 from app.services.base import BaseService, ServiceContext
 from app.services.business import BusinessService
@@ -93,6 +109,7 @@ from app.services.catalog import CategoryService, ProductService, ServiceItemSer
 from app.services.credit import CreditItemInput as ServiceCreditItem
 from app.services.credit import CreditService
 from app.services.customer import CustomerService
+from app.services.expense import ExpenseCategoryService, ExpenseService
 from app.services.export import ExportService
 from app.services.notification import NotificationService
 from app.services.payment import PaymentService
@@ -929,6 +946,350 @@ class Mutation:
             occurred_on=input.occurred_on,
         )
         return m.to_credit(ctx.session, credit, today=_business_today(svc))
+
+    # =====================================================================
+    # Expenses (money out)
+    # =====================================================================
+    @strawberry.mutation
+    @commits
+    def create_expense(self, info: strawberry.Info, input: ExpenseInput) -> ExpenseType:
+        ctx = _ctx(info)
+        expense = ExpenseService(ctx).create(
+            amount=required_decimal(input.amount or "", "amount"),
+            **_set(
+                category_id=str(input.category_id) if input.category_id else None,
+                vendor_name=input.vendor_name,
+                payment_method=(
+                    PaymentMethod(input.payment_method) if input.payment_method else None
+                ),
+                expense_date=input.expense_date,
+                reference=input.reference,
+                notes=input.notes,
+                receipt_file_id=(
+                    str(input.receipt_file_id) if input.receipt_file_id else None
+                ),
+                vendor_id=str(input.vendor_id) if input.vendor_id else None,
+                cash_account_id=(
+                    str(input.cash_account_id) if input.cash_account_id else None
+                ),
+            ),
+        )
+        return m.to_expense(ctx.session, expense)
+
+    @strawberry.mutation
+    @commits
+    def update_expense(
+        self, info: strawberry.Info, id: strawberry.ID, input: ExpenseInput
+    ) -> ExpenseType:
+        ctx = _ctx(info)
+        expense = ExpenseService(ctx).update(
+            str(id),
+            **_set(
+                amount=to_decimal(input.amount, "amount"),
+                category_id=str(input.category_id) if input.category_id else None,
+                vendor_name=input.vendor_name,
+                payment_method=(
+                    PaymentMethod(input.payment_method) if input.payment_method else None
+                ),
+                expense_date=input.expense_date,
+                reference=input.reference,
+                notes=input.notes,
+                receipt_file_id=(
+                    str(input.receipt_file_id) if input.receipt_file_id else None
+                ),
+                vendor_id=str(input.vendor_id) if input.vendor_id else None,
+                cash_account_id=(
+                    str(input.cash_account_id) if input.cash_account_id else None
+                ),
+            ),
+        )
+        return m.to_expense(ctx.session, expense)
+
+    @strawberry.mutation(description="Send an expense to the Trash. Recoverable.")
+    @commits
+    def delete_expense(self, info: strawberry.Info, id: strawberry.ID) -> ExpenseType:
+        ctx = _ctx(info)
+        return m.to_expense(ctx.session, ExpenseService(ctx).soft_delete(str(id)))
+
+    @strawberry.mutation
+    @commits
+    def restore_expense(self, info: strawberry.Info, id: strawberry.ID) -> ExpenseType:
+        ctx = _ctx(info)
+        return m.to_expense(ctx.session, ExpenseService(ctx).restore(str(id)))
+
+    @strawberry.mutation(description="Destroy a trashed expense for good.")
+    @commits
+    def permanently_delete_expense(self, info: strawberry.Info, id: strawberry.ID) -> bool:
+        ExpenseService(_ctx(info)).permanent_delete(str(id))
+        return True
+
+    @strawberry.mutation(
+        description="Bind an already-uploaded file as this expense's receipt."
+    )
+    @commits
+    def upload_expense_receipt(
+        self, info: strawberry.Info, id: strawberry.ID, file_id: strawberry.ID
+    ) -> ExpenseType:
+        ctx = _ctx(info)
+        return m.to_expense(
+            ctx.session, ExpenseService(ctx).upload_receipt(str(id), str(file_id))
+        )
+
+    @strawberry.mutation
+    @commits
+    def remove_expense_receipt(self, info: strawberry.Info, id: strawberry.ID) -> ExpenseType:
+        ctx = _ctx(info)
+        return m.to_expense(ctx.session, ExpenseService(ctx).remove_receipt(str(id)))
+
+    @strawberry.mutation
+    @commits
+    def create_expense_category(
+        self, info: strawberry.Info, input: ExpenseCategoryInput
+    ) -> ExpenseCategoryType:
+        ctx = _ctx(info)
+        category = ExpenseCategoryService(ctx).create(
+            input.name or "",
+            **_set(
+                description=input.description,
+                color=input.color,
+                is_active=input.is_active,
+                sort_order=input.sort_order,
+            ),
+        )
+        return m.to_expense_category(category)
+
+    @strawberry.mutation
+    @commits
+    def update_expense_category(
+        self, info: strawberry.Info, id: strawberry.ID, input: ExpenseCategoryInput
+    ) -> ExpenseCategoryType:
+        ctx = _ctx(info)
+        category = ExpenseCategoryService(ctx).update(
+            str(id),
+            **_set(
+                name=input.name,
+                description=input.description,
+                color=input.color,
+                is_active=input.is_active,
+                sort_order=input.sort_order,
+            ),
+        )
+        return m.to_expense_category(category)
+
+    @strawberry.mutation(
+        description="Expenses in the category are uncategorised, not deleted."
+    )
+    @commits
+    def delete_expense_category(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> ExpenseCategoryType:
+        return m.to_expense_category(ExpenseCategoryService(_ctx(info)).soft_delete(str(id)))
+
+    # =====================================================================
+    # Vendors, cash accounts, recurring expenses (Phase 2)
+    # =====================================================================
+    @strawberry.mutation
+    @commits
+    def create_vendor(self, info: strawberry.Info, input: VendorInput) -> VendorType:
+        ctx = _ctx(info)
+        vendor = VendorService(ctx).create(
+            input.name or "",
+            **_set(
+                phone=input.phone,
+                email=input.email,
+                address=input.address,
+                notes=input.notes,
+                is_active=input.is_active,
+            ),
+        )
+        return m.to_vendor(vendor)
+
+    @strawberry.mutation
+    @commits
+    def update_vendor(
+        self, info: strawberry.Info, id: strawberry.ID, input: VendorInput
+    ) -> VendorType:
+        ctx = _ctx(info)
+        vendor = VendorService(ctx).update(
+            str(id),
+            **_set(
+                name=input.name,
+                phone=input.phone,
+                email=input.email,
+                address=input.address,
+                notes=input.notes,
+                is_active=input.is_active,
+            ),
+        )
+        return m.to_vendor(vendor)
+
+    @strawberry.mutation(
+        description=(
+            "Past expenses keep the vendor's NAME -- only the link is removed, so "
+            "history stays readable."
+        )
+    )
+    @commits
+    def delete_vendor(self, info: strawberry.Info, id: strawberry.ID) -> VendorType:
+        return m.to_vendor(VendorService(_ctx(info)).soft_delete(str(id)))
+
+    @strawberry.mutation
+    @commits
+    def restore_vendor(self, info: strawberry.Info, id: strawberry.ID) -> VendorType:
+        return m.to_vendor(VendorService(_ctx(info)).restore(str(id)))
+
+    @strawberry.mutation
+    @commits
+    def create_cash_account(
+        self, info: strawberry.Info, input: CashAccountInput
+    ) -> CashAccountType:
+        ctx = _ctx(info)
+        svc = CashAccountService(ctx)
+        account = svc.create(
+            input.name or "",
+            **_set(
+                description=input.description,
+                # to_decimal, NOT required_decimal: an opening balance may legitimately
+                # be omitted (defaults to zero) and may legitimately be negative.
+                opening_balance=to_decimal(input.opening_balance, "opening_balance"),
+                is_active=input.is_active,
+                sort_order=input.sort_order,
+            ),
+        )
+        return m.to_cash_account(svc.balance_of(account.id))
+
+    @strawberry.mutation
+    @commits
+    def update_cash_account(
+        self, info: strawberry.Info, id: strawberry.ID, input: CashAccountInput
+    ) -> CashAccountType:
+        ctx = _ctx(info)
+        svc = CashAccountService(ctx)
+        account = svc.update(
+            str(id),
+            **_set(
+                name=input.name,
+                description=input.description,
+                opening_balance=to_decimal(input.opening_balance, "opening_balance"),
+                is_active=input.is_active,
+                sort_order=input.sort_order,
+            ),
+        )
+        return m.to_cash_account(svc.balance_of(account.id))
+
+    @strawberry.mutation(
+        description=(
+            "Payments and expenses paid from this account are kept -- they simply "
+            "stop being attributed to it."
+        )
+    )
+    @commits
+    def delete_cash_account(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> CashAccountType:
+        ctx = _ctx(info)
+        account = CashAccountService(ctx).soft_delete(str(id))
+        # Zero movements is the truth here, not a placeholder: soft_delete unassigns
+        # every payment and expense from the account, so nothing points at it any more.
+        return m.to_cash_account(
+            CashAccountBalance(account=account, money_in=Decimal("0"), money_out=Decimal("0"))
+        )
+
+    @strawberry.mutation
+    @commits
+    def create_recurring_expense(
+        self, info: strawberry.Info, input: RecurringExpenseInput
+    ) -> RecurringExpenseType:
+        ctx = _ctx(info)
+        template = RecurringExpenseService(ctx).create(
+            input.name or "",
+            amount=required_decimal(input.amount or "", "amount"),
+            **_set(
+                category_id=str(input.category_id) if input.category_id else None,
+                vendor_id=str(input.vendor_id) if input.vendor_id else None,
+                vendor_name=input.vendor_name,
+                cash_account_id=(
+                    str(input.cash_account_id) if input.cash_account_id else None
+                ),
+                payment_method=(
+                    PaymentMethod(input.payment_method) if input.payment_method else None
+                ),
+                frequency=(
+                    ExpenseFrequencyEnum(input.frequency) if input.frequency else None
+                ),
+                next_run=input.next_run,
+                end_date=input.end_date,
+                is_active=input.is_active,
+                notes=input.notes,
+            ),
+        )
+        return m.to_recurring_expense(ctx.session, template)
+
+    @strawberry.mutation(description="Changes the FUTURE only -- already-generated expenses stand.")
+    @commits
+    def update_recurring_expense(
+        self, info: strawberry.Info, id: strawberry.ID, input: RecurringExpenseInput
+    ) -> RecurringExpenseType:
+        ctx = _ctx(info)
+        template = RecurringExpenseService(ctx).update(
+            str(id),
+            **_set(
+                name=input.name,
+                amount=to_decimal(input.amount, "amount"),
+                category_id=str(input.category_id) if input.category_id else None,
+                vendor_id=str(input.vendor_id) if input.vendor_id else None,
+                vendor_name=input.vendor_name,
+                cash_account_id=(
+                    str(input.cash_account_id) if input.cash_account_id else None
+                ),
+                payment_method=(
+                    PaymentMethod(input.payment_method) if input.payment_method else None
+                ),
+                frequency=(
+                    ExpenseFrequencyEnum(input.frequency) if input.frequency else None
+                ),
+                next_run=input.next_run,
+                end_date=input.end_date,
+                is_active=input.is_active,
+                notes=input.notes,
+            ),
+        )
+        return m.to_recurring_expense(ctx.session, template)
+
+    @strawberry.mutation(
+        description="Pause or resume. Pausing keeps the date, so resuming catches up."
+    )
+    @commits
+    def set_recurring_expense_active(
+        self, info: strawberry.Info, id: strawberry.ID, is_active: bool
+    ) -> RecurringExpenseType:
+        ctx = _ctx(info)
+        template = RecurringExpenseService(ctx).set_active(str(id), is_active=is_active)
+        return m.to_recurring_expense(ctx.session, template)
+
+    @strawberry.mutation(
+        description="Expenses it already generated are kept -- like cancelling a standing order."
+    )
+    @commits
+    def delete_recurring_expense(
+        self, info: strawberry.Info, id: strawberry.ID
+    ) -> RecurringExpenseType:
+        ctx = _ctx(info)
+        template = RecurringExpenseService(ctx).soft_delete(str(id))
+        return m.to_recurring_expense(ctx.session, template)
+
+    @strawberry.mutation(
+        description=(
+            "Generate any due expenses now, instead of waiting for tonight's job. "
+            "Idempotent -- running it twice cannot charge the shop twice."
+        )
+    )
+    @commits
+    def run_recurring_expenses(self, info: strawberry.Info) -> GenerationResultType:
+        result = RecurringExpenseService(_ctx(info)).run_due()
+        return GenerationResultType(
+            created=result.created, skipped=result.skipped, capped=len(result.capped)
+        )
 
     @strawberry.mutation(
         description=(

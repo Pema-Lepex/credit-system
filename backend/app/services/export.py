@@ -77,6 +77,8 @@ from app.models.enums import (
 )
 from app.models.file import FileAsset
 from app.models.retention import ArchiveBatch, AuditLog, ExportJob
+from app.models.expense import Expense, ExpenseCategory
+from app.services.accounting import UNCATEGORISED, AccountingService
 from app.services.base import BaseService, ServiceContext
 from app.services.reports import ReportService
 from app.storage.service import StorageService
@@ -93,6 +95,12 @@ DATASETS: tuple[str, ...] = (
     "services",
     "business",
     "reports",
+    "expenses",
+    "expense_summary",
+    "profit_loss",
+    "cash_flow",
+    "aging_receivable",
+    "tax_summary",
 )
 
 _CONTENT_TYPES: dict[str, str] = {
@@ -383,6 +391,12 @@ class ExportService(BaseService):
             "services": self._services,
             "business": self._business_dataset,
             "reports": self._reports,
+            "expenses": self._expenses,
+            "expense_summary": self._expense_summary,
+            "profit_loss": self._profit_loss,
+            "cash_flow": self._cash_flow,
+            "aging_receivable": self._aging_receivable,
+            "tax_summary": self._tax_summary,
         }
         return builders[name](filters)
 
@@ -632,6 +646,209 @@ class ExportService(BaseService):
         return Dataset(
             name="reports",
             headers=["Period", "Credits issued", "Credits", "Collected", "Payments", "Net"],
+            rows=rows,
+        )
+
+    def _expenses(self, filters: dict[str, Any]) -> Dataset:
+        """Every expense line in range. The detail behind the summary below.
+
+        ``expense_date`` is a calendar DATE (see models/expense.py), so unlike
+        ``_payments`` it is compared against bare dates -- no timezone widening,
+        because there is no instant to widen.
+        """
+        stmt = (
+            select(Expense, ExpenseCategory.name)
+            # OUTER: an uncategorised expense is ordinary, and an inner join would
+            # silently drop it -- money missing from a financial export.
+            .join(
+                ExpenseCategory,
+                col(Expense.category_id) == col(ExpenseCategory.id),
+                isouter=True,
+            )
+            .where(
+                Expense.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(Expense.deleted_at).is_(None),
+            )
+            .order_by(col(Expense.expense_date).desc())
+        )
+        if start := _as_date(filters.get("start")):
+            stmt = stmt.where(col(Expense.expense_date) >= start)
+        if end := _as_date(filters.get("end")):
+            stmt = stmt.where(col(Expense.expense_date) <= end)
+
+        rows = [
+            [
+                e.expense_date.isoformat(),
+                category_name or UNCATEGORISED,
+                e.vendor_name or "",
+                _money(e.amount),
+                e.payment_method.value
+                if hasattr(e.payment_method, "value")
+                else str(e.payment_method),
+                e.reference,
+                e.notes,
+            ]
+            for e, category_name in self.session.execute(stmt).all()
+        ]
+        return Dataset(
+            name="expenses",
+            headers=[
+                "Date",
+                "Category",
+                "Vendor",
+                "Amount",
+                "Method",
+                "Reference",
+                "Notes",
+            ],
+            rows=rows,
+        )
+
+    def _expense_summary(self, filters: dict[str, Any]) -> Dataset:
+        """The grouped breakdown. Reuses AccountingService so the export and the
+        on-screen report can never disagree -- same reasoning as _reports."""
+        report = AccountingService(self.ctx).expense_report(
+            ReportPeriod(str(filters.get("period", ReportPeriod.MONTHLY.value)).upper()),
+            start=_as_date(filters.get("start")),
+            end=_as_date(filters.get("end")),
+        )
+        rows: list[list[Any]] = []
+        for grouping, group_rows in (
+            ("Category", report.by_category),
+            ("Vendor", report.by_vendor),
+            ("Method", report.by_method),
+        ):
+            for r in group_rows:
+                rows.append(
+                    [
+                        grouping,
+                        r.label,
+                        _money(r.total),
+                        r.count,
+                        float(r.share_of(report.total)),
+                    ]
+                )
+        return Dataset(
+            name="expense_summary",
+            headers=["Grouped by", "Name", "Total", "Count", "Share %"],
+            rows=rows,
+        )
+
+    def _profit_loss(self, filters: dict[str, Any]) -> Dataset:
+        """The P&L as a label/value table.
+
+        Shaped as rows rather than columns because that is what a P&L reads like on
+        paper, and because it then renders correctly through all four exporters
+        (CSV/XLSX/JSON/PDF) with no format-specific special-casing.
+        """
+        report = AccountingService(self.ctx).profit_loss(
+            ReportPeriod(str(filters.get("period", ReportPeriod.MONTHLY.value)).upper()),
+            start=_as_date(filters.get("start")),
+            end=_as_date(filters.get("end")),
+        )
+        rows: list[list[Any]] = [
+            ["Basis", "Cash basis (not an accounting statement)"],
+            ["Period start", report.start.isoformat()],
+            ["Period end", report.end.isoformat()],
+            ["Revenue (collections received)", _money(report.revenue)],
+            ["Cost of goods sold", _money(report.cost_of_goods_sold)],
+            ["Gross profit", _money(report.gross_profit)],
+            ["Operating expenses", _money(report.operating_expenses)],
+        ]
+        # Indent the category detail under the operating-expenses line so the table
+        # reads as a hierarchy in a flat CSV.
+        rows.extend(
+            [f"    {r.label}", _money(r.total)] for r in report.expenses_by_category
+        )
+        rows.append(["Net profit", _money(report.net_profit)])
+        rows.append(["Net margin %", float(report.net_margin_pct)])
+        return Dataset(name="profit_loss", headers=["Item", "Amount"], rows=rows)
+
+    def _cash_flow(self, filters: dict[str, Any]) -> Dataset:
+        report = AccountingService(self.ctx).cash_flow(
+            ReportPeriod(str(filters.get("period", ReportPeriod.MONTHLY.value)).upper()),
+            start=_as_date(filters.get("start")),
+            end=_as_date(filters.get("end")),
+        )
+        rows: list[list[Any]] = [
+            [r.label, _money(r.money_in), _money(r.money_out), _money(r.net)]
+            for r in report.rows
+        ]
+        # The totals belong IN the file: a spreadsheet someone forwards should not
+        # need the app open to answer "so what was the net".
+        rows.append(
+            [
+                "Total",
+                _money(report.total_in),
+                _money(report.total_out),
+                _money(report.net_flow),
+            ]
+        )
+        return Dataset(
+            name="cash_flow",
+            headers=["Period", "Money in", "Money out", "Net"],
+            rows=rows,
+        )
+
+    def _aging_receivable(self, filters: dict[str, Any]) -> Dataset:
+        """Point-in-time, so it takes `end` as the as-at date rather than a range."""
+        report = AccountingService(self.ctx).aging_receivable(
+            as_at=_as_date(filters.get("end"))
+        )
+        rows = [
+            [
+                c.name,
+                c.phone or "",
+                _money(c.buckets.get("CURRENT", Decimal("0"))),
+                _money(c.buckets.get("D1_30", Decimal("0"))),
+                _money(c.buckets.get("D31_60", Decimal("0"))),
+                _money(c.buckets.get("D61_90", Decimal("0"))),
+                _money(c.buckets.get("D90_PLUS", Decimal("0"))),
+                _money(c.total),
+                c.oldest_days,
+            ]
+            for c in report.customers
+        ]
+        return Dataset(
+            name="aging_receivable",
+            headers=[
+                "Customer",
+                "Phone",
+                "Not due yet",
+                "1-30 days",
+                "31-60 days",
+                "61-90 days",
+                "90+ days",
+                "Total owed",
+                "Oldest (days)",
+            ],
+            rows=rows,
+        )
+
+    def _tax_summary(self, filters: dict[str, Any]) -> Dataset:
+        report = AccountingService(self.ctx).tax_summary(
+            ReportPeriod(str(filters.get("period", ReportPeriod.MONTHLY.value)).upper()),
+            start=_as_date(filters.get("start")),
+            end=_as_date(filters.get("end")),
+        )
+        rows: list[list[Any]] = [
+            [f"{r.rate}%", _money(r.taxable_base), _money(r.tax_amount), r.line_count]
+            for r in report.rows
+        ]
+        rows.append(["Total", _money(report.total_taxable), _money(report.total_tax), ""])
+        if not report.reconciles:
+            # Never let the file imply a complete breakdown when it is not one.
+            rows.append(
+                [
+                    "Tax billed on credits (some charged at credit level, not per line)",
+                    "",
+                    _money(report.total_tax_on_credits),
+                    "",
+                ]
+            )
+        return Dataset(
+            name="tax_summary",
+            headers=["Rate", "Taxable amount", "Tax", "Lines"],
             rows=rows,
         )
 

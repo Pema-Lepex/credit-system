@@ -18,12 +18,17 @@ from app.models.communication import (
 )
 from app.models.credit import Credit, CreditItem, Payment
 from app.models.customer import Customer
+from app.models.cash_account import CashAccount
+from app.models.expense import Expense, ExpenseCategory
+from app.models.recurring import RecurringExpenseTemplate
+from app.models.vendor import Vendor
 from app.models.enums import (
     ArchiveState,
     AuditAction,
     CreditStatus,
     CustomerStatus,
     EmailTemplateKind,
+    ExpenseFrequency,
     ExportFormat,
     ExportState,
     FileKind,
@@ -60,12 +65,15 @@ __all__ = [
     "ArchiveBatch",
     "AuditLog",
     "Business",
+    "CashAccount",
     "Category",
     "Credit",
     "CreditItem",
     "Customer",
     "EmailLog",
     "EmailTemplate",
+    "Expense",
+    "ExpenseCategory",
     "ExportJob",
     "FileAsset",
     "LedgerEntry",
@@ -77,17 +85,20 @@ __all__ = [
     "Statement",
     "StatementStatus",
     "Product",
+    "RecurringExpenseTemplate",
     "RefreshToken",
     "ScheduledReminder",
     "Service",
     "StoredBlob",
     "User",
+    "Vendor",
     # enums
     "ArchiveState",
     "AuditAction",
     "CreditStatus",
     "CustomerStatus",
     "EmailTemplateKind",
+    "ExpenseFrequency",
     "ExportFormat",
     "ExportState",
     "FileKind",

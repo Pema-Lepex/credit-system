@@ -53,6 +53,7 @@ ApprovalStatus = strawberry.enum(enums.ApprovalStatus)
 CreditStatus = strawberry.enum(enums.CreditStatus)
 CustomerStatus = strawberry.enum(enums.CustomerStatus)
 PaymentMethod = strawberry.enum(enums.PaymentMethod)
+ExpenseFrequency = strawberry.enum(enums.ExpenseFrequency)
 ItemKind = strawberry.enum(enums.ItemKind)
 LedgerEntryType = strawberry.enum(enums.LedgerEntryType)
 StatementStatus = strawberry.enum(enums.StatementStatus)
@@ -447,6 +448,131 @@ class PaymentPage:
     page_info: PageInfo
 
 
+# ===== Expenses (money out) ==================================================
+@strawberry.type
+class ExpenseCategoryType:
+    id: strawberry.ID
+    name: str
+    description: str | None
+    color: str | None
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+
+
+@strawberry.type
+class ExpenseCategoryPage:
+    items: list[ExpenseCategoryType]
+    page_info: PageInfo
+
+
+@strawberry.type
+class VendorType:
+    id: strawberry.ID
+    name: str
+    phone: str | None
+    email: str | None
+    address: str | None
+    notes: str | None
+    is_active: bool
+    created_at: datetime
+
+
+@strawberry.type
+class VendorPage:
+    items: list[VendorType]
+    page_info: PageInfo
+
+
+@strawberry.type(
+    description=(
+        "Where money physically lives: the till, the bank, a mobile wallet. "
+        "`balance` is DERIVED from the movements, never a stored counter -- see "
+        "app/models/cash_account.py."
+    )
+)
+class CashAccountType:
+    id: strawberry.ID
+    name: str
+    description: str | None
+    opening_balance: str
+    money_in: str
+    money_out: str
+    balance: str
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+
+
+@strawberry.type
+class RecurringExpenseType:
+    id: strawberry.ID
+    name: str
+    category_id: strawberry.ID | None
+    category: ExpenseCategoryType | None
+    vendor_id: strawberry.ID | None
+    vendor_name: str | None
+    cash_account_id: strawberry.ID | None
+    cash_account_name: str | None
+    amount: str
+    payment_method: PaymentMethod  # type: ignore[valid-type]
+    frequency: ExpenseFrequency  # type: ignore[valid-type]
+    next_run: date
+    end_date: date | None
+    is_active: bool
+    notes: str | None
+    last_run_at: date | None
+    created_at: datetime
+
+
+@strawberry.type
+class RecurringExpensePage:
+    items: list[RecurringExpenseType]
+    page_info: PageInfo
+
+
+@strawberry.type(description="What one run of the recurring-expense generator did.")
+class GenerationResultType:
+    created: int
+    #: Already existed -- the unique index refused a duplicate. Not an error.
+    skipped: int
+    #: Templates that hit the catch-up cap; their backlog continues next run.
+    capped: int
+
+
+@strawberry.type
+class ExpenseType:
+    id: strawberry.ID
+    category_id: strawberry.ID | None
+    category: ExpenseCategoryType | None
+    amount: str
+    vendor_id: strawberry.ID | None
+    #: Snapshotted at recording time, and the fallback once a vendor is deleted.
+    vendor_name: str | None
+    cash_account_id: strawberry.ID | None
+    cash_account_name: str | None
+    #: Set when the scheduler generated this from a standing instruction. Such an
+    #: expense is not editable -- the UI hides its Edit action.
+    recurring_template_id: strawberry.ID | None
+    is_generated: bool
+    payment_method: PaymentMethod  # type: ignore[valid-type]
+    #: A calendar date, not an instant: a shop owner records "the rent, on the 1st".
+    expense_date: date
+    reference: str | None
+    notes: str | None
+    receipt_url: str | None
+    created_by_user_id: strawberry.ID | None
+    created_by_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@strawberry.type
+class ExpensePage:
+    items: list[ExpenseType]
+    page_info: PageInfo
+
+
 @strawberry.type(
     description=(
         "One customer's account for one month: opening + charges - payments = "
@@ -696,6 +822,34 @@ class ActivityItem:
     at: datetime
 
 
+@strawberry.type(
+    description=(
+        "The money-out half of the dashboard. A SEPARATE block from `summary`, "
+        "which knows nothing about expenses -- so the existing dashboard query "
+        "keeps working untouched."
+    )
+)
+class DashboardAccountingType:
+    today_sales: str
+    today_collections: str
+    today_expenses: str
+    outstanding_credit: str
+
+    month_revenue: str
+    month_expenses: str
+    month_cogs: str
+    net_cash_flow: str
+    #: Same definition as the P&L report -- revenue less COGS less expenses.
+    net_profit: str
+    #: None when last month had no expenses to compare against: "new", not "+100%".
+    expense_delta_percent: float | None
+
+    #: 12 months of in/out/net, oldest first. Feeds Revenue-vs-Expenses AND the
+    #: cash flow trend -- one series, two charts, so they cannot disagree.
+    monthly: list[CashFlowRowType]
+    top_expense_categories: list[ExpenseGroupRow]
+
+
 @strawberry.type
 class Dashboard:
     summary: DashboardSummary
@@ -705,6 +859,13 @@ class Dashboard:
     latest_activity: list[ActivityItem]
     upcoming_due: list[CreditType]
     collections_by_method: list[MethodBreakdown]
+    #: Phase 1/2 additions. Nullable-free but ADDITIVE: a client that does not ask
+    #: for these fields gets exactly the payload it got before.
+    accounting: DashboardAccountingType
+    recent_expenses: list[ExpenseType]
+    #: Reuses the aging report's row, so "who is overdue" means the same thing on
+    #: the dashboard as it does in the receivables report.
+    overdue_customers: list[AgingCustomerType]
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +1050,139 @@ class ReportSummary:
     rows: list[ReportRow]
     top_customers: list[TopCustomer]
     by_method: list[MethodBreakdown]
+
+
+@strawberry.type(description="One line of a grouped expense breakdown.")
+class ExpenseGroupRow:
+    key: str
+    label: str
+    total: str
+    count: int
+    #: Percentage of the report's total. Precomputed server-side so the client never
+    #: has to parse money strings back into numbers to draw a chart.
+    share_pct: str
+    color: str | None
+
+
+@strawberry.type(description="Total spending for a period, grouped three ways.")
+class ExpenseReportType:
+    period: ReportPeriod  # type: ignore[valid-type]
+    start_date: date
+    end_date: date
+    total: str
+    count: int
+    by_category: list[ExpenseGroupRow]
+    by_vendor: list[ExpenseGroupRow]
+    by_method: list[ExpenseGroupRow]
+
+
+@strawberry.type(
+    description=(
+        "Revenue less cost of goods sold less operating expenses. CASH BASIS: "
+        "revenue is money collected in the period, and COGS is valued at the "
+        "product's current cost price. A management figure, NOT an accounting "
+        "statement -- see app/services/accounting.py."
+    )
+)
+class ProfitLossType:
+    period: ReportPeriod  # type: ignore[valid-type]
+    start_date: date
+    end_date: date
+    revenue: str
+    cost_of_goods_sold: str
+    gross_profit: str
+    operating_expenses: str
+    net_profit: str
+    net_margin_pct: str
+    expenses_by_category: list[ExpenseGroupRow]
+    #: Always "Cash basis" -- carried in the payload so every surface that renders
+    #: this report (screen, PDF, XLSX) shows the caveat without re-deriving it.
+    basis: str
+
+
+@strawberry.type
+class CashFlowRowType:
+    bucket: date
+    label: str
+    money_in: str
+    money_out: str
+    net: str
+
+
+@strawberry.type(description="Money in (collections) against money out (expenses).")
+class CashFlowType:
+    period: ReportPeriod  # type: ignore[valid-type]
+    start_date: date
+    end_date: date
+    #: "day" | "week" | "month" -- chosen from the range length, not by the client.
+    granularity: str
+    total_in: str
+    total_out: str
+    net_flow: str
+    rows: list[CashFlowRowType]
+
+
+@strawberry.type
+class AgingBucketType:
+    key: str
+    label: str
+    total: str
+    count: int
+    share_pct: str
+
+
+@strawberry.type
+class AgingCustomerType:
+    customer_id: strawberry.ID
+    name: str
+    phone: str | None
+    current: str
+    days_1_to_30: str
+    days_31_to_60: str
+    days_61_to_90: str
+    days_90_plus: str
+    total: str
+    #: Days past due of their OLDEST unpaid credit -- who to chase first.
+    oldest_days: int
+
+
+@strawberry.type(
+    description=(
+        "Money customers owe, by how late it is. A POINT-IN-TIME report: `asAt` "
+        "defaults to today in the shop's timezone."
+    )
+)
+class AgingReportType:
+    as_at: date
+    total_outstanding: str
+    buckets: list[AgingBucketType]
+    customers: list[AgingCustomerType]
+
+
+@strawberry.type
+class TaxRateRowType:
+    rate: str
+    taxable_base: str
+    tax_amount: str
+    line_count: int
+
+
+@strawberry.type(
+    description=(
+        "Tax charged, grouped by rate. Aggregated from credit LINES; `reconciles` "
+        "is false when some tax was charged at the credit level instead and the "
+        "breakdown is therefore incomplete."
+    )
+)
+class TaxSummaryType:
+    period: ReportPeriod  # type: ignore[valid-type]
+    start_date: date
+    end_date: date
+    total_taxable: str
+    total_tax: str
+    total_tax_on_credits: str
+    reconciles: bool
+    rows: list[TaxRateRowType]
 
 
 @strawberry.type

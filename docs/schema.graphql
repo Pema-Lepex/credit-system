@@ -1,3 +1,16 @@
+"""
+A payment against the customer's ACCOUNT rather than one credit -- what a shop actually takes on salary day. Names no invoice, and never asks which purchase is being settled.
+"""
+input AccountPaymentInput {
+  customerId: ID!
+  amount: String!
+  method: PaymentMethod! = CASH
+  paidAt: Date = null
+  reference: String = null
+  notes: String = null
+  receiptFileId: ID = null
+}
+
 type ActivityItem {
   kind: String!
   id: ID!
@@ -42,6 +55,37 @@ type AdminStats {
   approved: Int!
   rejected: Int!
   suspended: Int!
+}
+
+type AgingBucketType {
+  key: String!
+  label: String!
+  total: String!
+  count: Int!
+  sharePct: String!
+}
+
+type AgingCustomerType {
+  customerId: ID!
+  name: String!
+  phone: String
+  current: String!
+  days1To30: String!
+  days31To60: String!
+  days61To90: String!
+  days90Plus: String!
+  total: String!
+  oldestDays: Int!
+}
+
+"""
+Money customers owe, by how late it is. A POINT-IN-TIME report: `asAt` defaults to today in the shop's timezone.
+"""
+type AgingReportType {
+  asAt: Date!
+  totalOutstanding: String!
+  buckets: [AgingBucketType!]!
+  customers: [AgingCustomerType!]!
 }
 
 enum ApprovalStatus {
@@ -208,6 +252,50 @@ input BusinessUpdateInput {
   retentionNotificationsEnabled: Boolean = null
 }
 
+input CashAccountInput {
+  name: String = null
+  description: String = null
+  openingBalance: String = null
+  isActive: Boolean = null
+  sortOrder: Int = null
+}
+
+"""
+Where money physically lives: the till, the bank, a mobile wallet. `balance` is DERIVED from the movements, never a stored counter -- see app/models/cash_account.py.
+"""
+type CashAccountType {
+  id: ID!
+  name: String!
+  description: String
+  openingBalance: String!
+  moneyIn: String!
+  moneyOut: String!
+  balance: String!
+  isActive: Boolean!
+  sortOrder: Int!
+  createdAt: DateTime!
+}
+
+type CashFlowRowType {
+  bucket: Date!
+  label: String!
+  moneyIn: String!
+  moneyOut: String!
+  net: String!
+}
+
+"""Money in (collections) against money out (expenses)."""
+type CashFlowType {
+  period: ReportPeriod!
+  startDate: Date!
+  endDate: Date!
+  granularity: String!
+  totalIn: String!
+  totalOut: String!
+  netFlow: String!
+  rows: [CashFlowRowType!]!
+}
+
 input CategoryInput {
   name: String!
   description: String = null
@@ -225,6 +313,15 @@ type CategoryType {
 input ChangePasswordInput {
   currentPassword: String!
   newPassword: String!
+}
+
+type ClosePeriodResult {
+  periodStart: Date!
+  periodEnd: Date!
+  created: Int!
+  skipped: Int!
+  nothingToBill: Int!
+  totalBilled: String!
 }
 
 input CreditCreateInput {
@@ -404,6 +501,7 @@ type CustomerType {
   totalCredit: String!
   totalPaid: String!
   outstandingBalance: String!
+  ledgerBalance: String!
   creditCount: Int!
   overdueCount: Int!
   lastCreditAt: DateTime
@@ -419,6 +517,27 @@ type Dashboard {
   latestActivity: [ActivityItem!]!
   upcomingDue: [CreditType!]!
   collectionsByMethod: [MethodBreakdown!]!
+  accounting: DashboardAccountingType!
+  recentExpenses: [ExpenseType!]!
+  overdueCustomers: [AgingCustomerType!]!
+}
+
+"""
+The money-out half of the dashboard. A SEPARATE block from `summary`, which knows nothing about expenses -- so the existing dashboard query keeps working untouched.
+"""
+type DashboardAccountingType {
+  todaySales: String!
+  todayCollections: String!
+  todayExpenses: String!
+  outstandingCredit: String!
+  monthRevenue: String!
+  monthExpenses: String!
+  monthCogs: String!
+  netCashFlow: String!
+  netProfit: String!
+  expenseDeltaPercent: Float
+  monthly: [CashFlowRowType!]!
+  topExpenseCategories: [ExpenseGroupRow!]!
 }
 
 type DashboardSummary {
@@ -464,6 +583,8 @@ enum EmailTemplateKind {
   ADMIN_NOTIFICATION
   OVERDUE_NOTICE
   DATA_DELETION_WARNING
+  WHATSAPP_REMINDER
+  WHATSAPP_OVERDUE
 }
 
 type EmailTemplateType {
@@ -479,6 +600,107 @@ type EmailTemplateType {
   showLogo: Boolean!
   isActive: Boolean!
   isDefault: Boolean!
+  updatedAt: DateTime!
+}
+
+input ExpenseCategoryInput {
+  name: String = null
+  description: String = null
+  color: String = null
+  isActive: Boolean = null
+  sortOrder: Int = null
+}
+
+type ExpenseCategoryType {
+  id: ID!
+  name: String!
+  description: String
+  color: String
+  isActive: Boolean!
+  sortOrder: Int!
+  createdAt: DateTime!
+}
+
+input ExpenseFilterInput {
+  search: String = null
+  categoryId: ID = null
+  vendorId: ID = null
+  cashAccountId: ID = null
+  vendorName: String = null
+  paymentMethod: [PaymentMethod!] = null
+  dateFrom: Date = null
+  dateTo: Date = null
+  minAmount: String = null
+  maxAmount: String = null
+  createdByUserId: ID = null
+}
+
+enum ExpenseFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+"""One line of a grouped expense breakdown."""
+type ExpenseGroupRow {
+  key: String!
+  label: String!
+  total: String!
+  count: Int!
+  sharePct: String!
+  color: String
+}
+
+input ExpenseInput {
+  amount: String = null
+  categoryId: ID = null
+  vendorName: String = null
+  paymentMethod: PaymentMethod = null
+  expenseDate: Date = null
+  reference: String = null
+  notes: String = null
+  receiptFileId: ID = null
+  vendorId: ID = null
+  cashAccountId: ID = null
+}
+
+type ExpensePage {
+  items: [ExpenseType!]!
+  pageInfo: PageInfo!
+}
+
+"""Total spending for a period, grouped three ways."""
+type ExpenseReportType {
+  period: ReportPeriod!
+  startDate: Date!
+  endDate: Date!
+  total: String!
+  count: Int!
+  byCategory: [ExpenseGroupRow!]!
+  byVendor: [ExpenseGroupRow!]!
+  byMethod: [ExpenseGroupRow!]!
+}
+
+type ExpenseType {
+  id: ID!
+  categoryId: ID
+  category: ExpenseCategoryType
+  amount: String!
+  vendorId: ID
+  vendorName: String
+  cashAccountId: ID
+  cashAccountName: String
+  recurringTemplateId: ID
+  isGenerated: Boolean!
+  paymentMethod: PaymentMethod!
+  expenseDate: Date!
+  reference: String
+  notes: String
+  receiptUrl: String
+  createdByUserId: ID
+  createdByName: String
+  createdAt: DateTime!
   updatedAt: DateTime!
 }
 
@@ -522,6 +744,13 @@ enum ExportState {
   EXPIRED
 }
 
+"""What one run of the recurring-expense generator did."""
+type GenerationResultType {
+  created: Int!
+  skipped: Int!
+  capped: Int!
+}
+
 enum ItemKind {
   PRODUCT
   SERVICE
@@ -532,6 +761,37 @@ enum ItemKind {
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf).
 """
 scalar JSON @specifiedBy(url: "https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf")
+
+"""
+One movement on a customer's account. Append-only: nothing here is ever edited or deleted, and a correction is a REVERSAL entry alongside the original. See backend/app/models/ledger.py.
+"""
+type LedgerEntryRow {
+  id: ID!
+  seq: Int!
+  entryType: LedgerEntryType!
+  amount: String!
+  balanceAfter: String!
+  occurredAt: DateTime!
+  postedAt: DateTime!
+  memo: String
+  creditId: ID
+  paymentId: ID
+  reversesId: ID
+}
+
+enum LedgerEntryType {
+  OPENING_BALANCE
+  CHARGE
+  PAYMENT
+  ADJUSTMENT
+  WRITE_OFF
+  REVERSAL
+}
+
+type LedgerPage {
+  items: [LedgerEntryRow!]!
+  pageInfo: PageInfo!
+}
 
 input LoginInput {
   email: String!
@@ -658,6 +918,71 @@ type Mutation {
   recordPayment(input: PaymentInput!): PaymentType!
 
   """
+  Record a payment against a customer's ACCOUNT balance -- no credit is named. One entry, constant cost, whether they have 4 purchases behind them or 40,000. Overpayment is ALLOWED here and leaves the customer in credit (an advance); unlike recordPayment, which refuses it against a single invoice.
+  """
+  recordAccountPayment(input: AccountPaymentInput!): PaymentType!
+
+  """
+  Record one purchase in one call: who, how much, and optionally what. The counter path -- no items to itemise, no due date to pick (a purchase is not an invoice; the month-end statement carries the obligation). Goes through the same service as the full form, so the ledger, aggregates, score and audit trail are identical.
+  """
+  quickSale(input: QuickSaleInput!): CreditType!
+  createExpense(input: ExpenseInput!): ExpenseType!
+  updateExpense(id: ID!, input: ExpenseInput!): ExpenseType!
+
+  """Send an expense to the Trash. Recoverable."""
+  deleteExpense(id: ID!): ExpenseType!
+  restoreExpense(id: ID!): ExpenseType!
+
+  """Destroy a trashed expense for good."""
+  permanentlyDeleteExpense(id: ID!): Boolean!
+
+  """Bind an already-uploaded file as this expense's receipt."""
+  uploadExpenseReceipt(id: ID!, fileId: ID!): ExpenseType!
+  removeExpenseReceipt(id: ID!): ExpenseType!
+  createExpenseCategory(input: ExpenseCategoryInput!): ExpenseCategoryType!
+  updateExpenseCategory(id: ID!, input: ExpenseCategoryInput!): ExpenseCategoryType!
+
+  """Expenses in the category are uncategorised, not deleted."""
+  deleteExpenseCategory(id: ID!): ExpenseCategoryType!
+  createVendor(input: VendorInput!): VendorType!
+  updateVendor(id: ID!, input: VendorInput!): VendorType!
+
+  """
+  Past expenses keep the vendor's NAME -- only the link is removed, so history stays readable.
+  """
+  deleteVendor(id: ID!): VendorType!
+  restoreVendor(id: ID!): VendorType!
+  createCashAccount(input: CashAccountInput!): CashAccountType!
+  updateCashAccount(id: ID!, input: CashAccountInput!): CashAccountType!
+
+  """
+  Payments and expenses paid from this account are kept -- they simply stop being attributed to it.
+  """
+  deleteCashAccount(id: ID!): CashAccountType!
+  createRecurringExpense(input: RecurringExpenseInput!): RecurringExpenseType!
+
+  """Changes the FUTURE only -- already-generated expenses stand."""
+  updateRecurringExpense(id: ID!, input: RecurringExpenseInput!): RecurringExpenseType!
+
+  """Pause or resume. Pausing keeps the date, so resuming catches up."""
+  setRecurringExpenseActive(id: ID!, isActive: Boolean!): RecurringExpenseType!
+
+  """
+  Expenses it already generated are kept -- like cancelling a standing order.
+  """
+  deleteRecurringExpense(id: ID!): RecurringExpenseType!
+
+  """
+  Generate any due expenses now, instead of waiting for tonight's job. Idempotent -- running it twice cannot charge the shop twice.
+  """
+  runRecurringExpenses: GenerationResultType!
+
+  """
+  Close a period and issue statements. Idempotent -- running it twice cannot bill anyone twice. Defaults to last calendar month.
+  """
+  closeStatementPeriod(periodStart: Date = null, periodEnd: Date = null, customerId: ID = null): ClosePeriodResult!
+
+  """
   Reverse a payment WITHOUT erasing it. The reason becomes part of the permanent record.
   """
   voidPayment(id: ID!, reason: String!): PaymentType!
@@ -678,6 +1003,11 @@ type Mutation {
   """Queue an immediate reminder. The sweep delivers it."""
   sendReminder(creditId: ID!): ScheduledReminderType!
   cancelReminder(id: ID!): ScheduledReminderType!
+
+  """
+  Compose a WhatsApp reminder for one credit and return a click-to-chat link. Sends NOTHING -- the owner opens the link and taps Send in WhatsApp. Fails if the customer's phone has no country code.
+  """
+  composeWhatsappReminder(creditId: ID!): WhatsAppLinkType!
   updateEmailTemplate(kind: EmailTemplateKind!, input: EmailTemplateInput!): EmailTemplateType!
 
   """Restore the shipped copy, discarding the owner's edits."""
@@ -694,6 +1024,9 @@ type Mutation {
 
   """Runs the export and returns the READY (or FAILED) job."""
   createExport(input: ExportInput!): ExportJobType!
+
+  """Permanently delete an export -- file and record. Not reversible."""
+  deleteExport(id: ID!): MessagePayload!
 
   """Push a scheduled deletion back. The owner's veto."""
   postponeDeletion(batchId: ID!, days: Int! = 30): ArchiveBatchType!
@@ -794,7 +1127,7 @@ type PaymentPage {
 type PaymentType {
   id: ID!
   number: String!
-  creditId: ID!
+  creditId: ID
   customerId: ID!
   customerName: String
   creditNumber: String
@@ -876,6 +1209,23 @@ input ProfileUpdateInput {
   language: String = null
 }
 
+"""
+Revenue less cost of goods sold less operating expenses. CASH BASIS: revenue is money collected in the period, and COGS is valued at the product's current cost price. A management figure, NOT an accounting statement -- see app/services/accounting.py.
+"""
+type ProfitLossType {
+  period: ReportPeriod!
+  startDate: Date!
+  endDate: Date!
+  revenue: String!
+  costOfGoodsSold: String!
+  grossProfit: String!
+  operatingExpenses: String!
+  netProfit: String!
+  netMarginPct: String!
+  expensesByCategory: [ExpenseGroupRow!]!
+  basis: String!
+}
+
 type Query {
   """The signed-in user, with the permissions their role grants."""
   me: UserType!
@@ -922,6 +1272,36 @@ type Query {
   credits(filter: CreditFilterInput = null, page: PageInput = null, sort: SortInput = null): CreditPage!
   payment(id: ID!): PaymentType!
   payments(filter: PaymentFilterInput = null, page: PageInput = null, sort: SortInput = null): PaymentPage!
+  expense(id: ID!): ExpenseType!
+  expenses(filter: ExpenseFilterInput = null, page: PageInput = null, sort: SortInput = null): ExpensePage!
+
+  """Trashed expenses, newest first."""
+  deletedExpenses(page: PageInput = null): ExpensePage!
+  expenseCategories(search: String = null, isActive: Boolean = null): [ExpenseCategoryType!]!
+  vendor(id: ID!): VendorType!
+  vendors(search: String = null, isActive: Boolean = null, page: PageInput = null, sort: SortInput = null): VendorPage!
+
+  """Cash accounts with their derived balances, cheapest ordering first."""
+  cashAccounts(isActive: Boolean = null): [CashAccountType!]!
+  cashAccount(id: ID!): CashAccountType!
+  recurringExpense(id: ID!): RecurringExpenseType!
+  recurringExpenses(search: String = null, isActive: Boolean = null, page: PageInput = null): RecurringExpensePage!
+
+  """
+  A customer's passbook: every charge, payment and correction against their account, newest first, each with the running balance at that point. Append-only -- a reversal appears alongside the entry it cancels rather than replacing it.
+  """
+  customerLedger(customerId: ID!, page: PageInput = null): LedgerPage!
+
+  """
+  Monthly statements, newest first. ONE per customer per month -- the document that carries the due date, replacing four hundred per-purchase ones.
+  """
+  statements(customerId: ID = null, page: PageInput = null): StatementPage!
+
+  """One statement."""
+  statement(id: ID!): StatementType!
+
+  """The ledger lines a statement covers -- the detail behind its total."""
+  statementEntries(id: ID!): [LedgerEntryRow!]!
 
   """Credits in the Trash: soft-deleted, recoverable."""
   deletedCredits(page: PageInput = null): CreditPage!
@@ -952,6 +1332,23 @@ type Query {
   templateVariables(kind: EmailTemplateKind!): [TemplateVariableType!]!
   reminders(status: [ReminderStatus!] = null, creditId: ID = null, page: PageInput = null): ReminderPage!
   report(input: ReportInput = null): ReportSummary!
+
+  """Total spending for a period, grouped by category, vendor and method."""
+  expenseReport(input: ReportInput = null, filter: ExpenseFilterInput = null): ExpenseReportType!
+
+  """
+  Cash-basis profit and loss. A management figure, not an accounting statement -- see app/services/accounting.py.
+  """
+  profitLoss(input: ReportInput = null): ProfitLossType!
+
+  """Money in against money out, bucketed over time."""
+  cashFlow(input: ReportInput = null): CashFlowType!
+
+  """Money customers owe, by how late it is. Defaults to today."""
+  agingReceivable(asAt: Date = null): AgingReportType!
+
+  """Tax charged, grouped by rate."""
+  taxSummary(input: ReportInput = null): TaxSummaryType!
   storageUsage: StorageUsage!
   archiveBatches(page: PageInput = null): ArchiveBatchPage!
 
@@ -962,6 +1359,56 @@ type Query {
 
   """The audit trail. ADMIN and above."""
   auditLogs(page: PageInput = null, entityType: String = null, entityId: ID = null, action: AuditAction = null, search: String = null): AuditLogPage!
+}
+
+"""
+One purchase, recorded at the counter. `amount` is what they owe for it; `description` is free text ("Rice 5kg") and may be omitted when there is no time to type it.
+"""
+input QuickSaleInput {
+  customerId: ID!
+  amount: String!
+  description: String = null
+  occurredOn: Date = null
+}
+
+input RecurringExpenseInput {
+  name: String = null
+  amount: String = null
+  categoryId: ID = null
+  vendorId: ID = null
+  vendorName: String = null
+  cashAccountId: ID = null
+  paymentMethod: PaymentMethod = null
+  frequency: ExpenseFrequency = null
+  nextRun: Date = null
+  endDate: Date = null
+  isActive: Boolean = null
+  notes: String = null
+}
+
+type RecurringExpensePage {
+  items: [RecurringExpenseType!]!
+  pageInfo: PageInfo!
+}
+
+type RecurringExpenseType {
+  id: ID!
+  name: String!
+  categoryId: ID
+  category: ExpenseCategoryType
+  vendorId: ID
+  vendorName: String
+  cashAccountId: ID
+  cashAccountName: String
+  amount: String!
+  paymentMethod: PaymentMethod!
+  frequency: ExpenseFrequency!
+  nextRun: Date!
+  endDate: Date
+  isActive: Boolean!
+  notes: String
+  lastRunAt: Date
+  createdAt: DateTime!
 }
 
 input RegisterInput {
@@ -1129,6 +1576,40 @@ input SortInput {
   desc: Boolean! = true
 }
 
+type StatementPage {
+  items: [StatementType!]!
+  pageInfo: PageInfo!
+}
+
+enum StatementStatus {
+  OPEN
+  ISSUED
+  SETTLED
+  OVERDUE
+}
+
+"""
+One customer's account for one month: opening + charges - payments = closing. A SNAPSHOT of the ledger, not an invoice -- nothing is ever allocated to it, and it settles when the account balance says so.
+"""
+type StatementType {
+  id: ID!
+  number: String!
+  customerId: ID!
+  customerName: String
+  periodStart: Date!
+  periodEnd: Date!
+  openingBalance: String!
+  charges: String!
+  payments: String!
+  closingBalance: String!
+  entryCount: Int!
+  dueDate: Date!
+  status: StatementStatus!
+  issuedAt: DateTime
+  settledAt: DateTime
+  createdAt: DateTime!
+}
+
 type StorageBreakdown {
   label: String!
   bytes: BigInt!
@@ -1151,6 +1632,27 @@ type StorageUsage {
   serviceCount: Int!
   imageCount: Int!
   exportCount: Int!
+}
+
+type TaxRateRowType {
+  rate: String!
+  taxableBase: String!
+  taxAmount: String!
+  lineCount: Int!
+}
+
+"""
+Tax charged, grouped by rate. Aggregated from credit LINES; `reconciles` is false when some tax was charged at the credit level instead and the breakdown is therefore incomplete.
+"""
+type TaxSummaryType {
+  period: ReportPeriod!
+  startDate: Date!
+  endDate: Date!
+  totalTaxable: String!
+  totalTax: String!
+  totalTaxOnCredits: String!
+  reconciles: Boolean!
+  rows: [TaxRateRowType!]!
 }
 
 type TemplateVariableType {
@@ -1204,4 +1706,39 @@ input UserUpdateInput {
   phone: String = null
   role: Role = null
   isActive: Boolean = null
+}
+
+input VendorInput {
+  name: String = null
+  phone: String = null
+  email: String = null
+  address: String = null
+  notes: String = null
+  isActive: Boolean = null
+}
+
+type VendorPage {
+  items: [VendorType!]!
+  pageInfo: PageInfo!
+}
+
+type VendorType {
+  id: ID!
+  name: String!
+  phone: String
+  email: String
+  address: String
+  notes: String
+  isActive: Boolean!
+  createdAt: DateTime!
+}
+
+"""
+A ready-to-send WhatsApp reminder. Opening `url` launches WhatsApp with `text` pre-filled; the owner still taps Send. Nothing is sent by the server.
+"""
+type WhatsAppLinkType {
+  url: String!
+  text: String!
+  toPhone: String!
+  customerName: String!
 }

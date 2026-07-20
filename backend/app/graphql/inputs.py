@@ -18,6 +18,7 @@ import strawberry
 from app.core.errors import ValidationError
 from app.graphql.types import (
     CustomerStatus,
+    ExpenseFrequency,
     ExportFormat,
     ItemKind,
     PaymentMethod,
@@ -391,6 +392,88 @@ class PaymentFilterInput:
     min_amount: str | None = None
     max_amount: str | None = None
     include_voided: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Expenses (money out)
+# ---------------------------------------------------------------------------
+@strawberry.input
+class ExpenseCategoryInput:
+    name: str | None = None
+    description: str | None = None
+    color: str | None = None
+    is_active: bool | None = None
+    sort_order: int | None = None
+
+
+@strawberry.input
+class ExpenseInput:
+    """Money crosses the wire as a STRING -- see to_decimal. ``amount`` is optional
+    here only so one input type can serve both create and update; the create
+    resolver requires it."""
+
+    amount: str | None = None
+    category_id: strawberry.ID | None = None
+    vendor_name: str | None = None
+    payment_method: PaymentMethod | None = None  # type: ignore[valid-type]
+    expense_date: date | None = None
+    reference: str | None = None
+    notes: str | None = None
+    receipt_file_id: strawberry.ID | None = None
+    vendor_id: strawberry.ID | None = None
+    cash_account_id: strawberry.ID | None = None
+
+
+@strawberry.input
+class VendorInput:
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    address: str | None = None
+    notes: str | None = None
+    is_active: bool | None = None
+
+
+@strawberry.input
+class CashAccountInput:
+    name: str | None = None
+    description: str | None = None
+    #: Money as a string, like everywhere else. May be NEGATIVE -- an overdrawn
+    #: bank account is a real thing a shop can have.
+    opening_balance: str | None = None
+    is_active: bool | None = None
+    sort_order: int | None = None
+
+
+@strawberry.input
+class RecurringExpenseInput:
+    name: str | None = None
+    amount: str | None = None
+    category_id: strawberry.ID | None = None
+    vendor_id: strawberry.ID | None = None
+    vendor_name: str | None = None
+    cash_account_id: strawberry.ID | None = None
+    payment_method: PaymentMethod | None = None  # type: ignore[valid-type]
+    frequency: ExpenseFrequency | None = None  # type: ignore[valid-type]
+    next_run: date | None = None
+    end_date: date | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+@strawberry.input
+class ExpenseFilterInput:
+    search: str | None = None
+    category_id: strawberry.ID | None = None
+    vendor_id: strawberry.ID | None = None
+    cash_account_id: strawberry.ID | None = None
+    vendor_name: str | None = None
+    payment_method: list[PaymentMethod] | None = None  # type: ignore[valid-type]
+    date_from: date | None = None
+    date_to: date | None = None
+    min_amount: str | None = None
+    max_amount: str | None = None
+    created_by_user_id: strawberry.ID | None = None
 
 
 # ---------------------------------------------------------------------------

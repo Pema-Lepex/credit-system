@@ -29,7 +29,15 @@ from app.services.customer import (
     recompute_credit_score,
     score_breakdown,
 )
+from app.services.cash_account import CashAccountService
+from app.services.expense import (
+    ExpenseCategoryService,
+    ExpenseFilter,
+    ExpenseService,
+)
+from app.services.recurring import RecurringExpenseService
 from app.services.user import UserService
+from app.services.vendor import VendorService
 
 __all__ = [
     # base
@@ -40,8 +48,14 @@ __all__ = [
     "AuthService",
     "BusinessService",
     "CategoryService",
+    "CashAccountService",
     "CustomerService",
+    "ExpenseCategoryService",
+    "ExpenseFilter",
+    "ExpenseService",
     "ProductService",
+    "RecurringExpenseService",
+    "VendorService",
     "ServiceItemService",
     "UserService",
     # module-level helpers used by other services / the scheduler

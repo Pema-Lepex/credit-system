@@ -45,6 +45,7 @@ from app.models.retention import AuditLog
 from app.services.base import ServiceContext
 from app.services.credit import CreditService
 from app.services.export import ExportService
+from app.services.recurring import RecurringExpenseService
 from app.services.reminder import ReminderService, SweepResult
 from app.services.retention import RetentionService
 from app.services.statement import StatementService
@@ -345,6 +346,51 @@ async def statement_run() -> None:
                 log.exception("Statement run failed for business %s", business.id)
 
 
+async def recurring_expense_run() -> None:
+    """Turn due standing instructions into real expenses, for every business.
+
+    DAILY, in each shop's own local time -- "the rent, on the 1st" means the 1st
+    where the shop is. A template whose date has passed is caught up rather than
+    skipped, so a host that was asleep on the 1st still records the rent on the 2nd.
+
+    Safe to run twice, and that safety is structural: a unique index on
+    (recurring_template_id, expense_date) refuses the duplicate. See
+    app/models/recurring.py -- this job does not track what it has already done.
+    """
+    with session_scope() as session:
+        for business in _active_businesses(session):
+            try:
+                ctx = _system_ctx(session, business.id)
+                today = _local_now(business).date()
+                result = RecurringExpenseService(ctx).run_due(today=today)
+
+                if result.created:
+                    log.info(
+                        "Generated %d recurring expense(s) for %s",
+                        result.created,
+                        business.name,
+                    )
+                if result.skipped:
+                    # Not an error: the run is idempotent and this is it working.
+                    log.debug(
+                        "Skipped %d already-generated expense(s) for %s",
+                        result.skipped,
+                        business.name,
+                    )
+                if result.capped:
+                    log.warning(
+                        "%d template(s) for %s hit the catch-up cap; "
+                        "the backlog continues on the next run",
+                        len(result.capped),
+                        business.name,
+                    )
+            except Exception:
+                # One shop's broken template must not stop every other shop's rent
+                # being recorded.
+                session.rollback()
+                log.exception("Recurring expense run failed for business %s", business.id)
+
+
 # ---------------------------------------------------------------------------
 # Manual triggers (the "Run now" buttons in the Storage Dashboard)
 # ---------------------------------------------------------------------------
@@ -352,6 +398,7 @@ async def run_job_now(name: str) -> str:
     jobs = {
         "reminders": reminder_sweep,
         "statements": statement_run,
+        "recurring_expenses": recurring_expense_run,
         "daily": daily_maintenance,
         "weekly": weekly_maintenance,
         "monthly": monthly_maintenance,

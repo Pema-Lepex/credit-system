@@ -34,6 +34,7 @@ from app.scheduler.jobs import (
     daily_maintenance,
     export_purge,
     monthly_maintenance,
+    recurring_expense_run,
     reminder_sweep,
     statement_run,
     weekly_maintenance,
@@ -87,6 +88,18 @@ def start_scheduler() -> AsyncIOScheduler | None:
         CronTrigger(hour=1, minute=15),
         id="statement_run",
         name="Close the month + refresh statement statuses",
+        replace_existing=True,
+    )
+
+    # 01:45 -- after statements, before the 02:30 cleanup, and well before any
+    # shop's reminder hour so the day's expenses exist by the time anyone looks at
+    # a report. Catch-up inside the job means a missed firing is recovered rather
+    # than skipped, and the unique index means a double firing is a no-op.
+    scheduler.add_job(
+        recurring_expense_run,
+        CronTrigger(hour=1, minute=45),
+        id="recurring_expense_run",
+        name="Generate due recurring expenses",
         replace_existing=True,
     )
 
