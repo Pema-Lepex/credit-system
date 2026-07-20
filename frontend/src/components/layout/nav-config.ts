@@ -1,6 +1,8 @@
 import {
+  ArrowLeftRight,
   Bell,
   Boxes,
+  HandCoins,
   Building2,
   CreditCard,
   Database,
@@ -9,9 +11,15 @@ import {
   LayoutDashboard,
   Mail,
   Package,
+  Percent,
   Receipt,
+  ReceiptText,
+  Repeat,
   Settings,
+  TrendingUp,
+  Truck,
   Users,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -67,6 +75,41 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: "payment:read",
         matchNested: true,
       },
+      {
+        // Plain language over accounting jargon, per the spec: a shop owner looks
+        // for "Expenses", not "Accounts Payable".
+        label: "Expenses",
+        href: "/expenses",
+        icon: ReceiptText,
+        permission: "expense:read",
+        matchNested: true,
+      },
+    ],
+  },
+  {
+    // Plain language, per the spec: these are the things a shop owner sets up once
+    // and then picks from — not an "accounting configuration" section.
+    label: "Money out",
+    items: [
+      {
+        label: "Suppliers",
+        href: "/vendors",
+        icon: Truck,
+        permission: "vendor:read",
+        matchNested: true,
+      },
+      {
+        label: "Cash & Bank",
+        href: "/cash-accounts",
+        icon: Wallet,
+        permission: "cash_account:read",
+      },
+      {
+        label: "Repeating Bills",
+        href: "/recurring-expenses",
+        icon: Repeat,
+        permission: "recurring_expense:read",
+      },
     ],
   },
   {
@@ -91,7 +134,42 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Insights",
     items: [
-      { label: "Reports", href: "/reports", icon: FileText, permission: "report:read" },
+      {
+        // Six reports is too many for a flat list, so they nest under Reports —
+        // the same parent/children shape Settings already uses.
+        label: "Reports",
+        href: "/reports",
+        icon: FileText,
+        permission: "report:read",
+        matchNested: true,
+        children: [
+          {
+            label: "Profit & Loss",
+            href: "/reports/profit-loss",
+            icon: TrendingUp,
+            permission: "report:read",
+          },
+          {
+            label: "Cash Flow",
+            href: "/reports/cash-flow",
+            icon: ArrowLeftRight,
+            permission: "report:read",
+          },
+          {
+            // Plain language over "Accounts Receivable", per the spec.
+            label: "Money Customers Owe",
+            href: "/reports/receivables",
+            icon: HandCoins,
+            permission: "report:read",
+          },
+          {
+            label: "Tax Summary",
+            href: "/reports/tax",
+            icon: Percent,
+            permission: "report:read",
+          },
+        ],
+      },
       { label: "Notifications", href: "/notifications", icon: Bell },
     ],
   },

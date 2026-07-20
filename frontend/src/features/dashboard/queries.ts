@@ -81,6 +81,61 @@ export interface MethodBreakdown {
   count: number;
 }
 
+export interface CashPoint {
+  bucket: ISODate;
+  label: string;
+  moneyIn: Money;
+  moneyOut: Money;
+  net: Money;
+}
+
+export interface ExpenseCategorySlice {
+  key: string;
+  label: string;
+  total: Money;
+  count: number;
+  sharePct: string;
+  color: string | null;
+}
+
+/**
+ * The money-out half. A separate block from `summary`, which knows nothing about
+ * expenses — see backend/app/services/accounting.py.
+ */
+export interface DashboardAccounting {
+  todaySales: Money;
+  todayCollections: Money;
+  todayExpenses: Money;
+  outstandingCredit: Money;
+  monthRevenue: Money;
+  monthExpenses: Money;
+  monthCogs: Money;
+  netCashFlow: Money;
+  /** Same definition as the P&L report — revenue less COGS less expenses. */
+  netProfit: Money;
+  /** Null means "no baseline", NOT 0% — same rule as collectionsDeltaPercent. */
+  expenseDeltaPercent: number | null;
+  /** 12 months, oldest first. Feeds Revenue-vs-Expenses AND the cash flow trend. */
+  monthly: CashPoint[];
+  topExpenseCategories: ExpenseCategorySlice[];
+}
+
+export interface RecentExpense {
+  id: ID;
+  amount: Money;
+  vendorName: string | null;
+  expenseDate: ISODate;
+  category: { id: ID; name: string; color: string | null } | null;
+}
+
+export interface OverdueCustomer {
+  customerId: ID;
+  name: string;
+  phone: string | null;
+  total: Money;
+  oldestDays: number;
+}
+
 export interface Dashboard {
   summary: DashboardSummary;
   monthly: MonthlyPoint[];
@@ -89,6 +144,9 @@ export interface Dashboard {
   latestActivity: ActivityItem[];
   upcomingDue: UpcomingDueCredit[];
   collectionsByMethod: MethodBreakdown[];
+  accounting: DashboardAccounting;
+  recentExpenses: RecentExpense[];
+  overdueCustomers: OverdueCustomer[];
 }
 
 export interface DashboardQueryResult {
@@ -159,6 +217,51 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
         method
         total
         count
+      }
+      accounting {
+        todaySales
+        todayCollections
+        todayExpenses
+        outstandingCredit
+        monthRevenue
+        monthExpenses
+        monthCogs
+        netCashFlow
+        netProfit
+        expenseDeltaPercent
+        monthly {
+          bucket
+          label
+          moneyIn
+          moneyOut
+          net
+        }
+        topExpenseCategories {
+          key
+          label
+          total
+          count
+          sharePct
+          color
+        }
+      }
+      recentExpenses {
+        id
+        amount
+        vendorName
+        expenseDate
+        category {
+          id
+          name
+          color
+        }
+      }
+      overdueCustomers {
+        customerId
+        name
+        phone
+        total
+        oldestDays
       }
     }
   }

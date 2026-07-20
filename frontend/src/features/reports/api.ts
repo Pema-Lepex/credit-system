@@ -70,6 +70,112 @@ export interface ReportInput {
   endDate?: ISODate | null;
 }
 
+// ---------------------------------------------------------------------------
+// Accounting reports (expenses + cash-basis P&L)
+// ---------------------------------------------------------------------------
+export interface ExpenseGroupRow {
+  key: string;
+  label: string;
+  total: Money;
+  count: number;
+  /** Percentage of the report total, computed server-side. Still a string. */
+  sharePct: string;
+  color: string | null;
+}
+
+export interface ExpenseReport {
+  period: ReportPeriod;
+  startDate: ISODate;
+  endDate: ISODate;
+  total: Money;
+  count: number;
+  byCategory: ExpenseGroupRow[];
+  byVendor: ExpenseGroupRow[];
+  byMethod: ExpenseGroupRow[];
+}
+
+export interface ProfitLoss {
+  period: ReportPeriod;
+  startDate: ISODate;
+  endDate: ISODate;
+  revenue: Money;
+  costOfGoodsSold: Money;
+  grossProfit: Money;
+  operatingExpenses: Money;
+  netProfit: Money;
+  netMarginPct: string;
+  expensesByCategory: ExpenseGroupRow[];
+  /** Always "Cash basis" — carried in the payload so every surface shows the caveat. */
+  basis: string;
+}
+
+export interface CashFlowRow {
+  bucket: ISODate;
+  label: string;
+  moneyIn: Money;
+  moneyOut: Money;
+  net: Money;
+}
+
+export interface CashFlow {
+  period: ReportPeriod;
+  startDate: ISODate;
+  endDate: ISODate;
+  /** "day" | "week" | "month" — chosen server-side from the range length. */
+  granularity: string;
+  totalIn: Money;
+  totalOut: Money;
+  netFlow: Money;
+  rows: CashFlowRow[];
+}
+
+export interface AgingBucket {
+  key: string;
+  label: string;
+  total: Money;
+  count: number;
+  sharePct: string;
+}
+
+export interface AgingCustomer {
+  customerId: ID;
+  name: string;
+  phone: string | null;
+  current: Money;
+  days1To30: Money;
+  days31To60: Money;
+  days61To90: Money;
+  days90Plus: Money;
+  total: Money;
+  oldestDays: number;
+}
+
+export interface AgingReport {
+  asAt: ISODate;
+  totalOutstanding: Money;
+  buckets: AgingBucket[];
+  customers: AgingCustomer[];
+}
+
+export interface TaxRateRow {
+  rate: string;
+  taxableBase: Money;
+  taxAmount: Money;
+  lineCount: number;
+}
+
+export interface TaxSummary {
+  period: ReportPeriod;
+  startDate: ISODate;
+  endDate: ISODate;
+  totalTaxable: Money;
+  totalTax: Money;
+  totalTaxOnCredits: Money;
+  /** False when some tax was charged at credit level, so the breakdown is partial. */
+  reconciles: boolean;
+  rows: TaxRateRow[];
+}
+
 export interface ExportJob {
   id: ID;
   format: ExportFormat;
@@ -104,6 +210,12 @@ export const EXPORT_DATASETS = [
   { value: "services", label: "Services" },
   { value: "business", label: "Business details" },
   { value: "reports", label: "Report summary" },
+  { value: "expenses", label: "Expenses" },
+  { value: "expense_summary", label: "Expense summary" },
+  { value: "profit_loss", label: "Profit & loss" },
+  { value: "cash_flow", label: "Cash flow" },
+  { value: "aging_receivable", label: "Money customers owe" },
+  { value: "tax_summary", label: "Tax summary" },
 ] as const;
 
 const REPORT_QUERY = /* GraphQL */ `
@@ -138,6 +250,129 @@ const REPORT_QUERY = /* GraphQL */ `
         method
         total
         count
+      }
+    }
+  }
+`;
+
+const EXPENSE_GROUP_FIELDS = /* GraphQL */ `
+  fragment ExpenseGroupFields on ExpenseGroupRow {
+    key
+    label
+    total
+    count
+    sharePct
+    color
+  }
+`;
+
+const EXPENSE_REPORT_QUERY = /* GraphQL */ `
+  ${EXPENSE_GROUP_FIELDS}
+  query ExpenseReport($input: ReportInput) {
+    expenseReport(input: $input) {
+      period
+      startDate
+      endDate
+      total
+      count
+      byCategory {
+        ...ExpenseGroupFields
+      }
+      byVendor {
+        ...ExpenseGroupFields
+      }
+      byMethod {
+        ...ExpenseGroupFields
+      }
+    }
+  }
+`;
+
+const PROFIT_LOSS_QUERY = /* GraphQL */ `
+  ${EXPENSE_GROUP_FIELDS}
+  query ProfitLoss($input: ReportInput) {
+    profitLoss(input: $input) {
+      period
+      startDate
+      endDate
+      revenue
+      costOfGoodsSold
+      grossProfit
+      operatingExpenses
+      netProfit
+      netMarginPct
+      basis
+      expensesByCategory {
+        ...ExpenseGroupFields
+      }
+    }
+  }
+`;
+
+const CASH_FLOW_QUERY = /* GraphQL */ `
+  query CashFlow($input: ReportInput) {
+    cashFlow(input: $input) {
+      period
+      startDate
+      endDate
+      granularity
+      totalIn
+      totalOut
+      netFlow
+      rows {
+        bucket
+        label
+        moneyIn
+        moneyOut
+        net
+      }
+    }
+  }
+`;
+
+const AGING_QUERY = /* GraphQL */ `
+  query AgingReceivable($asAt: Date) {
+    agingReceivable(asAt: $asAt) {
+      asAt
+      totalOutstanding
+      buckets {
+        key
+        label
+        total
+        count
+        sharePct
+      }
+      customers {
+        customerId
+        name
+        phone
+        current
+        days1To30
+        days31To60
+        days61To90
+        days90Plus
+        total
+        oldestDays
+      }
+    }
+  }
+`;
+
+const TAX_SUMMARY_QUERY = /* GraphQL */ `
+  query TaxSummary($input: ReportInput) {
+    taxSummary(input: $input) {
+      period
+      startDate
+      endDate
+      totalTaxable
+      totalTax
+      totalTaxOnCredits
+      reconciles
+      rows {
+        rate
+        taxableBase
+        taxAmount
+        lineCount
       }
     }
   }
@@ -198,6 +433,11 @@ const DELETE_EXPORT_MUTATION = /* GraphQL */ `
 export const reportKeys = {
   all: ["report"] as const,
   summary: (input: ReportInput) => ["report", "summary", input] as const,
+  expenses: (input: ReportInput) => ["report", "expenses", input] as const,
+  profitLoss: (input: ReportInput) => ["report", "profit-loss", input] as const,
+  cashFlow: (input: ReportInput) => ["report", "cash-flow", input] as const,
+  aging: (asAt: ISODate | null) => ["report", "aging", asAt] as const,
+  tax: (input: ReportInput) => ["report", "tax", input] as const,
 };
 
 export const exportKeys = {
@@ -222,6 +462,107 @@ export function useReport(input: ReportInput): UseQueryResult<ReportSummary> {
       return data.report;
     },
     placeholderData: (previous) => previous, // charts hold their shape while refetching
+  });
+}
+
+function reportVariables(input: ReportInput) {
+  return {
+    input: {
+      period: input.period,
+      startDate: input.startDate ?? null,
+      endDate: input.endDate ?? null,
+    },
+  };
+}
+
+export function useExpenseReport(
+  input: ReportInput,
+  options?: { enabled?: boolean },
+): UseQueryResult<ExpenseReport> {
+  return useQuery({
+    queryKey: reportKeys.expenses(input),
+    queryFn: async () => {
+      const data = await gqlRequest<{ expenseReport: ExpenseReport }, { input: ReportInput }>(
+        EXPENSE_REPORT_QUERY,
+        reportVariables(input),
+      );
+      return data.expenseReport;
+    },
+    enabled: options?.enabled ?? true,
+    placeholderData: (previous) => previous, // charts hold their shape while refetching
+  });
+}
+
+export function useProfitLoss(
+  input: ReportInput,
+  options?: { enabled?: boolean },
+): UseQueryResult<ProfitLoss> {
+  return useQuery({
+    queryKey: reportKeys.profitLoss(input),
+    queryFn: async () => {
+      const data = await gqlRequest<{ profitLoss: ProfitLoss }, { input: ReportInput }>(
+        PROFIT_LOSS_QUERY,
+        reportVariables(input),
+      );
+      return data.profitLoss;
+    },
+    enabled: options?.enabled ?? true,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useCashFlow(
+  input: ReportInput,
+  options?: { enabled?: boolean },
+): UseQueryResult<CashFlow> {
+  return useQuery({
+    queryKey: reportKeys.cashFlow(input),
+    queryFn: async () => {
+      const data = await gqlRequest<{ cashFlow: CashFlow }, { input: ReportInput }>(
+        CASH_FLOW_QUERY,
+        reportVariables(input),
+      );
+      return data.cashFlow;
+    },
+    enabled: options?.enabled ?? true,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * Point-in-time, so it takes an as-at date rather than a period. `null` means
+ * "today in the shop's timezone", resolved server-side — the browser's idea of
+ * today can be a day out.
+ */
+export function useAgingReceivable(asAt: ISODate | null = null): UseQueryResult<AgingReport> {
+  return useQuery({
+    queryKey: reportKeys.aging(asAt),
+    queryFn: async () => {
+      const data = await gqlRequest<{ agingReceivable: AgingReport }, { asAt: ISODate | null }>(
+        AGING_QUERY,
+        { asAt },
+      );
+      return data.agingReceivable;
+    },
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useTaxSummary(
+  input: ReportInput,
+  options?: { enabled?: boolean },
+): UseQueryResult<TaxSummary> {
+  return useQuery({
+    queryKey: reportKeys.tax(input),
+    queryFn: async () => {
+      const data = await gqlRequest<{ taxSummary: TaxSummary }, { input: ReportInput }>(
+        TAX_SUMMARY_QUERY,
+        reportVariables(input),
+      );
+      return data.taxSummary;
+    },
+    enabled: options?.enabled ?? true,
+    placeholderData: (previous) => previous,
   });
 }
 

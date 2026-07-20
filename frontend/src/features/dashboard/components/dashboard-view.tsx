@@ -26,6 +26,19 @@ import { UpcomingDue } from "@/features/dashboard/components/upcoming-due";
 import { useDashboard } from "@/features/dashboard/hooks/use-dashboard";
 import { parseApiError } from "@/features/credits/lib/errors";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  MonthCards,
+  TodayCards,
+} from "@/features/dashboard/components/money-out-cards";
+import {
+  OverdueCustomers,
+  RecentExpenses,
+  TopExpenseCategoriesChart,
+} from "@/features/dashboard/components/money-out-panels";
+import {
+  CashFlowTrendChart,
+  RevenueVsExpensesChart,
+} from "@/features/dashboard/components/revenue-vs-expenses-chart";
 import { fadeUpVariants, staggerVariants } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -108,6 +121,15 @@ export function DashboardView() {
     >
       {header}
 
+      {/* Today first: it is the question a shop owner opens the app to answer. */}
+      <motion.section variants={fadeUpVariants} aria-label="Today">
+        <TodayCards accounting={data.accounting} />
+      </motion.section>
+
+      <motion.section variants={fadeUpVariants} aria-label="This month">
+        <MonthCards accounting={data.accounting} />
+      </motion.section>
+
       <motion.section variants={fadeUpVariants} aria-label="Summary">
         <StatCards summary={summary} />
       </motion.section>
@@ -119,6 +141,25 @@ export function DashboardView() {
       >
         <MonthlyChart data={data.monthly} />
         <OverdueTrendChart data={data.overdueTrend} />
+      </motion.section>
+
+      <motion.section
+        variants={fadeUpVariants}
+        aria-label="Money in and out"
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+      >
+        <RevenueVsExpensesChart data={data.accounting.monthly} />
+        <CashFlowTrendChart data={data.accounting.monthly} />
+      </motion.section>
+
+      <motion.section
+        variants={fadeUpVariants}
+        aria-label="Spending"
+        className="grid grid-cols-1 gap-4 lg:grid-cols-3"
+      >
+        <TopExpenseCategoriesChart data={data.accounting.topExpenseCategories} />
+        <RecentExpenses expenses={data.recentExpenses} />
+        <OverdueCustomers customers={data.overdueCustomers} />
       </motion.section>
 
       <motion.section

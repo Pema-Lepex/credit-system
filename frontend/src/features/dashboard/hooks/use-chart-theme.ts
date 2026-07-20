@@ -32,6 +32,15 @@ export interface ChartTheme {
   surface: string;
   muted: string;
   foreground: string;
+  /**
+   * Semantic tones for money in vs money out. NEVER used as a series colour.
+   *
+   * On a revenue-vs-expenses chart the reader should not have to consult a legend
+   * to learn which bar is the good one — so those two marks are coloured by
+   * meaning, and the categorical ramp is left for series that carry no valence.
+   */
+  positive: string;
+  negative: string;
 }
 
 const FALLBACK: ChartTheme = {
@@ -41,6 +50,8 @@ const FALLBACK: ChartTheme = {
   surface: "#ffffff",
   muted: "#52525b",
   foreground: "#09090b",
+  positive: "#059669",
+  negative: "#dc2626",
 };
 
 function readVar(styles: CSSStyleDeclaration, name: string, fallback: string): string {
@@ -69,6 +80,8 @@ export function useChartTheme(): ChartTheme | null {
       surface: readVar(styles, "--card", FALLBACK.surface),
       muted: readVar(styles, "--muted-foreground", FALLBACK.muted),
       foreground: readVar(styles, "--foreground", FALLBACK.foreground),
+      positive: readVar(styles, "--success", FALLBACK.positive),
+      negative: readVar(styles, "--destructive", FALLBACK.negative),
     });
     // resolvedTheme is the dependency that matters: next-themes has already put
     // `.dark` on <html> by the time this runs, so the vars read correctly.

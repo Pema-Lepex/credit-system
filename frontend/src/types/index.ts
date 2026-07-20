@@ -53,6 +53,18 @@ export const PERMISSIONS = [
   "payment:read",
   "payment:write",
   "payment:delete",
+  "expense:read",
+  "expense:write",
+  "expense:delete",
+  "expense_category:read",
+  "expense_category:manage",
+  "vendor:read",
+  "vendor:write",
+  "vendor:delete",
+  "cash_account:read",
+  "cash_account:manage",
+  "recurring_expense:read",
+  "recurring_expense:manage",
   "report:read",
   "export:create",
   "settings:read",
@@ -108,6 +120,10 @@ export const PAYMENT_METHODS = [
   "OTHER",
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** How often a recurring expense fires — backend/app/models/enums.py. */
+export const EXPENSE_FREQUENCIES = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"] as const;
+export type ExpenseFrequency = (typeof EXPENSE_FREQUENCIES)[number];
 
 export const ITEM_KINDS = ["PRODUCT", "SERVICE", "CUSTOM"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
