@@ -1523,6 +1523,14 @@ class Mutation:
             filters["start"] = input.date_from
         if input.date_to:
             filters["end"] = input.date_to
+        # Narrowing understood by some datasets (today: audit_log). Passed through
+        # only when set, so an absent filter never becomes an empty-string match.
+        if input.action:
+            filters["action"] = input.action
+        if input.entity_type:
+            filters["entity_type"] = input.entity_type
+        if input.search:
+            filters["search"] = input.search
 
         job = await ExportService(ctx).create_export(
             ctx,

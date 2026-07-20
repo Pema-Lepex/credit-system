@@ -882,10 +882,14 @@ class ExportService(BaseService):
             stmt = stmt.where(col(AuditLog.created_at) >= start_of_day(start, tz))
         if end := _as_date(filters.get("end")):
             stmt = stmt.where(col(AuditLog.created_at) < end_of_day(end, tz))
+        # The same three predicates the on-screen filter applies, so the file and
+        # the table can never disagree -- see Query.audit_logs.
         if action := filters.get("action"):
             stmt = stmt.where(AuditLog.action == str(action))
         if entity_type := filters.get("entity_type"):
             stmt = stmt.where(AuditLog.entity_type == str(entity_type))
+        if search := filters.get("search"):
+            stmt = stmt.where(col(AuditLog.summary).ilike(f"%{str(search).strip()}%"))
 
         rows = [
             [

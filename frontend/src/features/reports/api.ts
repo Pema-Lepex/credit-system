@@ -199,6 +199,14 @@ export interface ExportInput {
   datasets: string[];
   dateFrom?: ISODate | null;
   dateTo?: ISODate | null;
+  /**
+   * Dataset-specific narrowing — today only `audit_log` reads these. They exist so
+   * a download matches the filters on screen; a file that disagrees with the table
+   * above it is worse than no file.
+   */
+  action?: string | null;
+  entityType?: string | null;
+  search?: string | null;
 }
 
 /** The backend's dataset whitelist (app/services/export.py DATASETS), verbatim. */

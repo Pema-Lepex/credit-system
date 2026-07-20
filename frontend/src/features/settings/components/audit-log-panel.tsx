@@ -170,6 +170,17 @@ export function AuditLogPanel() {
   const [filters, setFilters] = useState<AuditLogFilters>({});
   const { data, isLoading } = useAuditLogs(page, filters);
 
+  // Spelled out rather than left as "filters applied": the whole complaint was not
+  // knowing whether the file matched the screen.
+  const activeFilters = [
+    filters.dateFrom || filters.dateTo
+      ? `${filters.dateFrom || "the beginning"} to ${filters.dateTo || "today"}`
+      : null,
+    filters.action ? (ACTION_LABEL[filters.action] ?? filters.action).toLowerCase() : null,
+    filters.entityType ? `${filters.entityType.replace("_", " ")} records` : null,
+    filters.search?.trim() ? `matching "${filters.search.trim()}"` : null,
+  ].filter((part): part is string => Boolean(part));
+
   const patch = (next: Partial<AuditLogFilters>) => {
     setFilters((f) => ({ ...f, ...next }));
     setPage(1);
@@ -249,16 +260,23 @@ export function AuditLogPanel() {
 
         {/* Downloads the SAME range the table is showing — a file that disagrees
             with the screen above it is worse than no file. */}
+        {/* The download sends the SAME filters the table is showing. A file that
+            disagrees with the screen above it is worse than no file. */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-xs">
-            {filters.dateFrom || filters.dateTo
-              ? `Showing ${filters.dateFrom || "the beginning"} to ${filters.dateTo || "today"}.`
-              : "Showing all activity."}
+            {activeFilters.length > 0
+              ? `Downloading ${activeFilters.join(", ")}.`
+              : "Downloading all activity."}
           </p>
           <ReportDownloadButtons
             datasets={["audit_log"]}
             dateFrom={filters.dateFrom ?? null}
             dateTo={filters.dateTo ?? null}
+            filters={{
+              action: filters.action ?? null,
+              entityType: filters.entityType ?? null,
+              search: filters.search ?? null,
+            }}
             filename={`activity-log${filters.dateFrom ? `-from-${filters.dateFrom}` : ""}${filters.dateTo ? `-to-${filters.dateTo}` : ""}`}
           />
         </div>

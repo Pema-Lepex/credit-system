@@ -35,6 +35,14 @@ export interface ReportDownloadButtonsProps {
   /** Omit a format to hide its button. Defaults to all three. */
   formats?: ExportFormat[];
   disabled?: boolean;
+  /**
+   * Extra narrowing for datasets that support it (today: `audit_log`).
+   *
+   * WHY THIS EXISTS: the buttons used to send only the date range, so a screen
+   * filtered by action or search still downloaded EVERYTHING. Whatever narrows the
+   * table has to narrow the file too.
+   */
+  filters?: { action?: string | null; entityType?: string | null; search?: string | null };
 }
 
 const FORMAT_META: Record<
@@ -53,6 +61,7 @@ export function ReportDownloadButtons({
   filename,
   formats = ["PDF", "XLSX", "CSV"],
   disabled = false,
+  filters,
 }: ReportDownloadButtonsProps) {
   const createExport = useCreateExport();
   // Tracked per format, not as one boolean: clicking PDF must not put a spinner
@@ -62,7 +71,15 @@ export function ReportDownloadButtons({
   const download = async (format: ExportFormat) => {
     setWorking(format);
     try {
-      const job = await createExport.mutateAsync({ format, datasets, dateFrom, dateTo });
+      const job = await createExport.mutateAsync({
+        format,
+        datasets,
+        dateFrom,
+        dateTo,
+        action: filters?.action ?? null,
+        entityType: filters?.entityType ?? null,
+        search: filters?.search ?? null,
+      });
 
       if (job.state !== "READY") {
         toast.error(`The ${FORMAT_META[format].label} could not be generated.`, {

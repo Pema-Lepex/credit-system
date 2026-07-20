@@ -502,6 +502,17 @@ class ExportInput:
     date_from: date | None = None
     date_to: date | None = None
 
+    # DATASET-SPECIFIC NARROWING. Only the datasets that understand a field read it;
+    # the rest ignore it. Declared explicitly rather than as a free-form JSON blob so
+    # the schema still says what may be sent -- an export is the last place to accept
+    # arbitrary client-supplied keys (see app/services/export.py).
+    #
+    # These exist because a download that ignores the filters on screen hands the
+    # user a file that disagrees with what they are looking at.
+    action: str | None = None
+    entity_type: str | None = None
+    search: str | None = None
+
 
 @strawberry.input
 class ReportInput:

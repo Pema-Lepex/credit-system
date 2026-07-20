@@ -719,6 +719,9 @@ input ExportInput {
   datasets: [String!]!
   dateFrom: Date = null
   dateTo: Date = null
+  action: String = null
+  entityType: String = null
+  search: String = null
 }
 
 type ExportJobPage {

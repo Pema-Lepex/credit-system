@@ -30,11 +30,11 @@ const HANDBOOK = `
       <span>Lepex Credit Manager<small>The Handbook</small></span>
     </a>
     <nav class="topnav" aria-label="Sections">
-      <a href="#why">Why</a>
-      <a href="#roles">Who's who</a>
-      <a href="#start">Get started</a>
-      <a href="#loop">Daily rhythm</a>
-      <a href="#settle">Payments</a>
+      <a href="#start">Start here</a>
+      <a href="#loop">Every day</a>
+      <a href="#settle">Getting paid</a>
+      <a href="#spend">Money out</a>
+      <a href="#know">Where you stand</a>
       <a href="#tour">Everything</a>
       <a class="signin" href="/login">Sign in &rarr;</a>
     </nav>
@@ -97,7 +97,7 @@ const HANDBOOK = `
     <div class="wrap measure">
       <span class="sec-label">What it is (and isn't)</span>
       <h2>A credit tracker with a good memory &mdash; not accounting software.</h2>
-      <p class="lead">Lepex does three honest things, and does them well:</p>
+      <p class="lead">Lepex does four honest things, and does them well:</p>
       <div class="grid" style="margin-top:1.6rem;">
         <div class="card">
           <span class="ref">Job 01 &middot; Record</span>
@@ -115,9 +115,14 @@ const HANDBOOK = `
           <p>One number per customer: what they owe you, right now. They hand you cash, you type the amount, and everything underneath sorts itself out.</p>
         </div>
         <div class="card">
+          <span class="ref">Job 04 &middot; Money out</span>
+          <h3>What the shop spends</h3>
+          <p>Rent, stock, fuel, wages. Write them down once and the app can finally answer the question the notebook never could: <em>did I actually make anything this month?</em></p>
+        </div>
+        <div class="card">
           <span class="ref">Not the job</span>
-          <h3>It won't do your taxes</h3>
-          <p>No profit-and-loss, no VAT returns, no balance sheets. If you need an accountant, keep your accountant. Lepex just guards the credit.</p>
+          <h3>It's still not an accountant</h3>
+          <p>You get a plain profit figure and a tax summary to hand over &mdash; not double-entry books, VAT returns or balance sheets. Keep your accountant; give them better numbers.</p>
         </div>
       </div>
     </div>
@@ -262,6 +267,88 @@ const HANDBOOK = `
     </div>
   </section>
 
+  <section id="spend">
+    <div class="wrap">
+      <div class="measure">
+        <span class="sec-label">Money going out</span>
+        <h2>The other half of the story.</h2>
+        <p class="lead">Knowing what you're owed is only half of it. Write down what you spend and the app can tell you what you actually kept.</p>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <span class="ref">Money out &middot; Expenses</span>
+          <h3>Write down what you paid</h3>
+          <p>Amount, date, who you paid, and a photo of the bill if you have one. Put it in a category &mdash; Rent, Fuel, Wages &mdash; and your reports group themselves. Recording an expense <strong>never</strong> changes what a customer owes you; the two sides stay separate.</p>
+          <div class="foot"><span>Snap the receipt</span><span class="val">categories optional</span></div>
+        </div>
+        <div class="card">
+          <span class="ref">Money out &middot; Suppliers</span>
+          <h3>The people you pay</h3>
+          <p>Your wholesaler, the landlord, the electricity company. Save them once and pick them from a list &mdash; or just type a name for a one-off purchase. Either way the name stays on the expense, even if you remove the supplier later.</p>
+          <div class="foot"><span>Saved once</span><span class="val">or type a name</span></div>
+        </div>
+        <div class="card">
+          <span class="ref">Money out &middot; Cash &amp; Bank</span>
+          <h3>Where the money sits</h3>
+          <p>The cash drawer, your bank account, a mobile wallet. Tell the app which one a payment landed in or an expense came out of, and each balance keeps itself up to date. Nothing to reconcile &mdash; the balance <em>is</em> the movements added up.</p>
+          <div class="foot"><span>Always adds up</span><span class="val">no reconciling</span></div>
+        </div>
+        <div class="card">
+          <span class="ref">Money out &middot; Repeating bills</span>
+          <h3>The ones that come round</h3>
+          <p>Set the rent up once &mdash; amount, day of the month &mdash; and it records itself every month while you sleep. Miss a few days offline and it catches up. It can never charge you twice for the same day, even if it runs twice.</p>
+          <div class="foot"><span>Set once</span><span class="val">records itself</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="know">
+    <div class="wrap">
+      <div class="measure">
+        <span class="sec-label">Where you stand</span>
+        <h2>Six answers, one click each.</h2>
+        <p class="lead">Every report opens on screen and downloads as <strong>PDF</strong>, <strong>Excel</strong> or <strong>CSV</strong> &mdash; the same numbers either way.</p>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>Money customers owe</h3>
+          <p>Everyone who owes you, worst first, sorted into <em>not due yet</em>, <em>1&ndash;30 days</em>, <em>31&ndash;60</em>, <em>61&ndash;90</em> and <em>90+</em>. This is the one to open on a slow morning &mdash; it tells you exactly who to ring, in order.</p>
+        </div>
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>Profit &amp; loss</h3>
+          <p>What you collected, less what your stock cost, less your expenses &mdash; and what's left. In plain words, not accounting ones. Marked <strong>cash basis</strong>, because it counts money you actually took, not money you're owed.</p>
+        </div>
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>Cash flow</h3>
+          <p>Money in against money out, day by day, week by week or month by month, with the running difference. The quickest way to see a bad month coming.</p>
+        </div>
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>Where the money went</h3>
+          <p>Your spending grouped by category, by supplier and by how you paid. Usually one line explains most of the month.</p>
+        </div>
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>Tax summary</h3>
+          <p>What you charged in tax, grouped by rate, ready to hand over. A summary to help you file &mdash; not a return.</p>
+        </div>
+        <div class="card">
+          <span class="ref">Report</span>
+          <h3>The daily report</h3>
+          <p>Credit issued and collected over any period, with your top customers and how they paid. The original report, still where it was.</p>
+        </div>
+      </div>
+      <div class="note">
+        <span class="ic">&rsaquo;</span>
+        <div><b>Your dashboard already knows.</b> Today's sales, today's collections, today's expenses and what you're owed sit at the top of the home page &mdash; with this month's profit just under them. You only need the reports when you want the detail behind a number.</div>
+      </div>
+    </div>
+  </section>
+
   <section id="tour">
     <div class="wrap">
       <div class="measure">
@@ -297,6 +384,20 @@ const HANDBOOK = `
           <h3>Money coming back</h3>
           <p>Take a payment against the whole account &mdash; the usual way &mdash; or against one specific credit if you want to choose. Either way the amount, date, method and reference are kept forever, and every balance in the app moves with it. No more &ldquo;did he pay that or not?&rdquo;</p>
           <div class="foot"><span>Every payment kept</span><span class="val">oldest settled first</span></div>
+        </div>
+
+        <div class="card">
+          <span class="ref">Money out &middot; Expenses</span>
+          <h3>What the shop spends</h3>
+          <p>Every payment out, with a category, a supplier and the receipt. Feeds your profit, cash flow and spending reports &mdash; and never touches what customers owe. See <a href="#spend">Money going out</a>.</p>
+          <div class="foot"><span>Rent &middot; stock &middot; fuel</span><span class="val">import supported</span></div>
+        </div>
+
+        <div class="card">
+          <span class="ref">Money out &middot; Repeating bills</span>
+          <h3>Bills that record themselves</h3>
+          <p>Rent on the 1st, wages on the 28th. Set the amount and the day once; the app writes the expense each time it falls due, catches up if it was offline, and can never record the same day twice.</p>
+          <div class="foot"><span>Set once</span><span class="val">pause any time</span></div>
         </div>
 
         <div class="card">
@@ -430,7 +531,7 @@ const HANDBOOK = `
         </details>
         <details>
           <summary>Can I bring in the customers I already have?</summary>
-          <p>Yes. Download the template from <strong>Customers &rarr; Import</strong>, fill it in, and upload &mdash; and the same for credits, products and services. Your file is checked before anything is saved, and any problem is pointed at by row and column. If one row is wrong, nothing is saved, so you're never left with half an import.</p>
+          <p>Yes. Download the template from <strong>Customers &rarr; Import</strong>, fill it in, and upload &mdash; and the same for credits, products, services, suppliers and expenses. Your file is checked before anything is saved, and any problem is pointed at by row and column. If one row is wrong, nothing is saved, so you're never left with half an import.</p>
         </details>
         <details>
           <summary>Can I remind someone on WhatsApp?</summary>
@@ -454,7 +555,24 @@ const HANDBOOK = `
         </details>
         <details>
           <summary>Is this accounting software?</summary>
-          <p>No &mdash; and that's on purpose. Lepex tracks credit and sends reminders. It doesn't do profit-and-loss or tax. It keeps your <em>&ldquo;who owes me&rdquo;</em> perfectly, and leaves the accounting to your accountant.</p>
+          <p>Not quite &mdash; and that's on purpose. It <em>will</em> tell you what you collected, what you spent, and what you kept, and it will hand you a tax summary. What it won't do is double-entry books, VAT returns or balance sheets.</p>
+          <p>Think of it as keeping such good records that your accountant's job gets easier &mdash; not as replacing them.</p>
+        </details>
+        <details>
+          <summary>Do I have to record my expenses?</summary>
+          <p>No. Everything about credit works exactly as before if you never touch them. But the profit figure can only be as honest as what you've told it &mdash; with no expenses recorded, it will show you your collections and nothing taken off.</p>
+        </details>
+        <details>
+          <summary>Will recording an expense change what someone owes me?</summary>
+          <p>Never. Money out and money owed are kept completely apart. Nothing you do on the expenses side can move a customer's balance.</p>
+        </details>
+        <details>
+          <summary>I already have months of expenses in a spreadsheet.</summary>
+          <p>Bring them in &mdash; <strong>Expenses &rarr; Import</strong>. Categories are created as they appear, so you don't have to set anything up first. Your profit and cash flow reports then work from day one instead of from today.</p>
+        </details>
+        <details>
+          <summary>Does the app reduce my stock when someone takes goods on credit?</summary>
+          <p>Yes &mdash; if you picked the item from your product list. Free-typed items aren't linked to anything, so they can't move a count. Stock is allowed to go negative on purpose: a stale count should never stop you making a sale.</p>
         </details>
         <details>
           <summary>Why did my new shop start as &ldquo;Pending&rdquo;?</summary>
@@ -474,9 +592,10 @@ const HANDBOOK = `
     <p class="foot-thesis">Your shop's memory, <em>finally</em> written in ink that doesn't fade.</p>
     <div class="foot-meta">
       <span>Lepex Credit Manager</span>
-      <a href="#why">Why</a>
-      <a href="#start">Get started</a>
-      <a href="#settle">Payments</a>
+      <a href="#start">Start here</a>
+      <a href="#settle">Getting paid</a>
+      <a href="#spend">Money out</a>
+      <a href="#know">Where you stand</a>
       <a href="#tour">Everything</a>
       <a href="/login">Sign in</a>
       <span class="foot-cta">Built for shopkeepers, not accountants.</span>

@@ -125,6 +125,95 @@ def test_the_export_is_tenant_scoped(
     assert _export_rows(other_ctx) == []
 
 
+def test_the_export_can_be_filtered_by_record_type(
+    ctx: ServiceContext, session: Session
+) -> None:
+    _log(session, ctx, days_ago=0, summary="a credit thing")
+    row = _log(session, ctx, days_ago=0, summary="a payment thing")
+    row.entity_type = "payment"
+    session.add(row)
+    session.commit()
+
+    rows = _export_rows(ctx, entity_type="payment")
+
+    assert [str(r[4]) for r in rows] == ["a payment thing"]
+
+
+def test_the_export_can_be_filtered_by_search(
+    ctx: ServiceContext, session: Session
+) -> None:
+    _log(session, ctx, days_ago=0, summary="Recorded a payment from Dorji")
+    _log(session, ctx, days_ago=0, summary="Deleted a product")
+
+    rows = _export_rows(ctx, search="dorji")
+
+    assert [str(r[4]) for r in rows] == ["Recorded a payment from Dorji"]
+
+
+def test_every_on_screen_filter_narrows_the_download(
+    ctx: ServiceContext, session: Session
+) -> None:
+    """THE reported bug: a filtered screen used to download EVERYTHING.
+
+    Each filter is applied on its own and then all together, because the failure was
+    not that filtering was broken -- it was that three of the four were never sent.
+    """
+    keep = _log(session, ctx, days_ago=1, summary="Recorded a payment from Dorji")
+    keep.entity_type = "payment"
+    session.add(keep)
+
+    _log(session, ctx, days_ago=1, summary="Deleted a product")          # wrong search
+    other = _log(session, ctx, days_ago=1, summary="Recorded a payment from Pema")
+    other.entity_type = "credit"                                          # wrong type
+    session.add(other)
+    _log(session, ctx, days_ago=400, summary="Recorded a payment from Dorji")  # too old
+    session.commit()
+
+    assert len(_export_rows(ctx)) == 4  # unfiltered: everything, as before
+
+    narrowed = _export_rows(
+        ctx,
+        start=TODAY - timedelta(days=30),
+        end=TODAY,
+        entity_type="payment",
+        search="dorji",
+        action=AuditAction.CREATE.value,
+    )
+
+    assert [str(r[4]) for r in narrowed] == ["Recorded a payment from Dorji"]
+
+
+@pytest.mark.asyncio
+async def test_the_filters_survive_the_whole_export_pipeline(
+    ctx: ServiceContext, session: Session
+) -> None:
+    """End to end through create_export, not just the builder -- the bug lived in
+    the mutation, which never put these keys into the job's filters at all."""
+    from app.graphql.mutations import Mutation  # noqa: F401  (import-time check)
+
+    keep = _log(session, ctx, days_ago=1, summary="Recorded a payment from Dorji")
+    keep.entity_type = "payment"
+    session.add(keep)
+    _log(session, ctx, days_ago=1, summary="Deleted a product")
+    session.commit()
+
+    job = await ExportService(ctx).create_export(
+        ctx,
+        format=ExportFormat.CSV,
+        datasets=["audit_log"],
+        filters={
+            "start": TODAY - timedelta(days=30),
+            "end": TODAY,
+            "entity_type": "payment",
+            "search": "dorji",
+        },
+    )
+
+    assert job.state.value in {"READY", "ready"}, job.error
+    # One data row, not two: the narrowing reached the file, not just the screen.
+    assert job.row_count == 1
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fmt", [ExportFormat.CSV, ExportFormat.XLSX, ExportFormat.JSON, ExportFormat.PDF]
