@@ -76,7 +76,15 @@ class VendorService(BaseService):
     def search(self, term: str, page: PageInput | None = None) -> Page[Vendor]:
         return self.list(page, search=term)
 
+    def build(self, name: str, **fields: Any) -> Vendor:
+        """Create a vendor WITHOUT committing. The caller owns the transaction --
+        see ExpenseService.build for why the bulk importer needs this."""
+        return self._create(name, commit=False, **fields)
+
     def create(self, name: str, **fields: Any) -> Vendor:
+        return self._create(name, commit=True, **fields)
+
+    def _create(self, name: str, *, commit: bool, **fields: Any) -> Vendor:
         self.require(Permission.VENDOR_WRITE)
         business_id = self.scope_id
 
@@ -93,8 +101,9 @@ class VendorService(BaseService):
         self.session.flush()
 
         self.audit(AuditAction.CREATE, "vendor", vendor.id, f"Vendor '{name}' created")
-        self.session.commit()
-        self.session.refresh(vendor)
+        if commit:
+            self.session.commit()
+            self.session.refresh(vendor)
         return vendor
 
     def update(self, vendor_id: str, **fields: Any) -> Vendor:

@@ -72,6 +72,8 @@ class RecurringExpenseTemplate(TenantEntity, table=True):
 
     amount: Decimal = Field(sa_type=MoneyType)  # type: ignore[call-overload]
     payment_method: PaymentMethod = Field(default=PaymentMethod.CASH, max_length=20)
+    #: Copied onto every expense this template generates. See Payment.provider.
+    provider: str | None = Field(default=None, max_length=120)
 
     frequency: ExpenseFrequency = Field(default=ExpenseFrequency.MONTHLY, max_length=12, index=True)
     #: The next date an expense is owed. Local calendar date, like Expense.expense_date.

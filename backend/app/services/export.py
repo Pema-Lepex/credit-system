@@ -533,6 +533,7 @@ class ExportService(BaseService):
                 _dt(p.paid_at),
                 _money(p.amount),
                 p.method.value if hasattr(p.method, "value") else str(p.method),
+                p.provider or "",
                 p.reference,
                 _money(p.balance_after),
                 "YES" if p.voided_at else "",
@@ -545,7 +546,8 @@ class ExportService(BaseService):
             name="payments",
             headers=[
                 "Number", "Credit", "Customer", "Paid at (UTC)", "Amount", "Method",
-                "Reference", "Balance after", "Voided", "Void reason", "Notes",
+                "Bank / provider", "Reference", "Balance after", "Voided",
+                "Void reason", "Notes",
             ],
             rows=rows,
         )
@@ -685,6 +687,7 @@ class ExportService(BaseService):
                 e.payment_method.value
                 if hasattr(e.payment_method, "value")
                 else str(e.payment_method),
+                e.provider or "",
                 e.reference,
                 e.notes,
             ]
@@ -698,6 +701,7 @@ class ExportService(BaseService):
                 "Vendor",
                 "Amount",
                 "Method",
+                "Bank / provider",
                 "Reference",
                 "Notes",
             ],

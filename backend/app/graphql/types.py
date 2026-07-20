@@ -432,6 +432,8 @@ class PaymentType:
     amount: str
     balance_after: str
     method: PaymentMethod  # type: ignore[valid-type]
+    #: WHICH bank / wallet, when the method alone is not enough. Free text.
+    provider: str | None
     reference: str | None
     notes: str | None
     paid_at: datetime
@@ -516,6 +518,7 @@ class RecurringExpenseType:
     cash_account_name: str | None
     amount: str
     payment_method: PaymentMethod  # type: ignore[valid-type]
+    provider: str | None
     frequency: ExpenseFrequency  # type: ignore[valid-type]
     next_run: date
     end_date: date | None
@@ -556,6 +559,7 @@ class ExpenseType:
     recurring_template_id: strawberry.ID | None
     is_generated: bool
     payment_method: PaymentMethod  # type: ignore[valid-type]
+    provider: str | None
     #: A calendar date, not an instant: a shop owner records "the rent, on the 1st".
     expense_date: date
     reference: str | None

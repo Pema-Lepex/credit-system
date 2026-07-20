@@ -52,11 +52,13 @@ from sqlmodel import col, select
 from app.core.errors import AppError, ValidationError
 from app.core.security import Permission
 from app.models.customer import Customer
-from app.models.enums import AuditAction, CustomerStatus, ItemKind
+from app.models.enums import AuditAction, CustomerStatus, ItemKind, PaymentMethod
 from app.services.base import BaseService, ServiceContext
 from app.services.catalog import CategoryService, ProductService, ServiceItemService
 from app.services.credit import CreditItemInput, CreditService
 from app.services.customer import CustomerService
+from app.services.expense import ExpenseCategoryService, ExpenseService
+from app.services.vendor import VendorService
 from app.utils.dates import today_in
 
 # Guard rails. A sheet bigger than this is a migration, not an import -- it should
@@ -362,6 +364,82 @@ SERVICE_COLUMNS: tuple[Column, ...] = (
 )
 
 
+VENDOR_COLUMNS: tuple[Column, ...] = (
+    Column(
+        "name",
+        "Name",
+        required=True,
+        help="Who you pay -- a wholesaler, the landlord, the electricity company.",
+        example="Thimphu Wholesale",
+    ),
+    Column("phone", "Phone", example="+975 17 12 34 56"),
+    Column("email", "Email", example="sales@thimphuwholesale.bt"),
+    Column("address", "Address", example="Norzin Lam, Thimphu"),
+    Column("notes", "Notes", example="Delivers on Tuesdays"),
+)
+
+EXPENSE_COLUMNS: tuple[Column, ...] = (
+    Column(
+        "expense_date",
+        "Date",
+        required=True,
+        help="The day you paid it. Format YYYY-MM-DD. Cannot be in the future.",
+        example="2026-07-01",
+    ),
+    Column(
+        "amount",
+        "Amount",
+        required=True,
+        help="What you paid. Must be more than zero.",
+        example="12000.00",
+    ),
+    Column(
+        "category",
+        "Category",
+        help=(
+            "Rent, Utilities, Fuel... Categories are created for you as they appear, "
+            "so you do not have to set them up first."
+        ),
+        example="Rent",
+    ),
+    Column(
+        "vendor_name",
+        "Paid to",
+        help=(
+            "Who got the money. Matched against your suppliers by name; if there is "
+            "no such supplier the name is still kept on the expense."
+        ),
+        example="Thimphu Wholesale",
+    ),
+    Column(
+        "payment_method",
+        "Method",
+        help="CASH, BANK_TRANSFER, CARD, MOBILE_MONEY, CHEQUE or OTHER. Blank means CASH.",
+        example="CASH",
+    ),
+    Column(
+        "provider",
+        "Bank or wallet",
+        help=(
+            "Which bank or wallet it went through, when the method alone is not "
+            "enough. Anything you type is kept."
+        ),
+        example="Bank of Bhutan",
+    ),
+    Column(
+        "cash_account",
+        "Paid from",
+        help=(
+            "The name of one of your cash or bank accounts. Must already exist -- "
+            "unlike categories, an account carries a balance, so it is never invented."
+        ),
+        example="Cash drawer",
+    ),
+    Column("reference", "Reference", help="Bill number, transfer ref.", example="INV-8841"),
+    Column("notes", "Notes", example="July rent"),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DatasetSpec:
     name: str
@@ -407,6 +485,23 @@ DATASETS: dict[str, DatasetSpec] = {
         intro=(
             "One row for each service you offer. Only Name is required. Categories "
             "are created for you as they appear."
+        ),
+    ),
+    "vendors": DatasetSpec(
+        name="vendors",
+        title="Suppliers",
+        columns=VENDOR_COLUMNS,
+        permission=Permission.VENDOR_WRITE,
+        intro="One row for each supplier you pay. Only Name is required.",
+    ),
+    "expenses": DatasetSpec(
+        name="expenses",
+        title="Expenses",
+        columns=EXPENSE_COLUMNS,
+        permission=Permission.EXPENSE_WRITE,
+        intro=(
+            "One row for each thing you paid for. Date and Amount are required. "
+            "Categories are created as they appear; suppliers are matched by name."
         ),
     ),
 }
@@ -700,6 +795,8 @@ class ImportService(BaseService):
             "credits": lambda line, payload: CreditService(self.ctx).create(ctx, **payload),
             "products": lambda line, payload: ProductService(self.ctx).build(**payload),
             "services": lambda line, payload: ServiceItemService(self.ctx).build(**payload),
+            "vendors": lambda line, payload: VendorService(self.ctx).build(**payload),
+            "expenses": lambda line, payload: ExpenseService(self.ctx).build(**payload),
         }
         write = writers[spec.name]
 
@@ -707,6 +804,8 @@ class ImportService(BaseService):
         # write. Done before the rows so every payload has a real category_id.
         if spec.name in ("products", "services"):
             self._apply_categories(prepared)
+        elif spec.name == "expenses":
+            self._apply_expense_categories(prepared)
 
         for line, payload in prepared:
             try:
@@ -848,6 +947,44 @@ class ImportService(BaseService):
         """
         if spec.name == "customers":
             return {}
+
+        if spec.name == "vendors":
+            from app.models.vendor import Vendor
+
+            rows = self.session.exec(
+                select(Vendor).where(
+                    Vendor.business_id == self.scope_id,  # TENANCY BOUNDARY
+                    col(Vendor.deleted_at).is_(None),
+                )
+            ).all()
+            return {
+                "existing": {v.name.strip().lower(): v.id for v in rows},
+                # Names claimed by earlier ROWS of this same file. The database
+                # cannot see these -- they are all still in flight.
+                "seen": {},
+            }
+
+        if spec.name == "expenses":
+            from app.models.cash_account import CashAccount
+            from app.models.vendor import Vendor
+
+            vendors = self.session.exec(
+                select(Vendor).where(
+                    Vendor.business_id == self.scope_id,  # TENANCY BOUNDARY
+                    col(Vendor.deleted_at).is_(None),
+                )
+            ).all()
+            accounts = self.session.exec(
+                select(CashAccount).where(
+                    CashAccount.business_id == self.scope_id,  # TENANCY BOUNDARY
+                    col(CashAccount.deleted_at).is_(None),
+                )
+            ).all()
+            return {
+                "vendors": {v.name.strip().lower(): v.id for v in vendors},
+                "accounts": {a.name.strip().lower(): a.id for a in accounts},
+                "today": today_in(self.get_business().timezone),
+            }
 
         if spec.name in ("products", "services"):
             from app.models.catalog import Product, Service
@@ -1078,6 +1215,152 @@ class ImportService(BaseService):
         ).all()
         return {c.name.strip().lower(): c.id for c in rows}
 
+    # -- validation: vendors -------------------------------------------------
+    def _validate_vendor(
+        self, line: int, raw: dict[str, str], report: ImportReport, ctx: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        get = _reader(line, raw, report)
+        name = get.text("name", max_length=200, required=True)
+        if not name:
+            return None
+
+        # Duplicates are refused against BOTH the database and earlier rows of this
+        # same file -- the second are still in flight and invisible to a query.
+        key = name.strip().lower()
+        if key in ctx["existing"]:
+            report.errors.append(
+                RowIssue(line, "name", f"You already have a supplier called '{name}'.")
+            )
+            return None
+        if key in ctx["seen"]:
+            report.errors.append(
+                RowIssue(
+                    line,
+                    "name",
+                    f"'{name}' is on row {ctx['seen'][key]} of this sheet as well. "
+                    f"Each supplier can only appear once.",
+                )
+            )
+            return None
+        ctx["seen"][key] = line
+
+        return {
+            "name": name,
+            "phone": get.text("phone", max_length=40),
+            "email": get.email("email"),
+            "address": get.text("address", max_length=500),
+            "notes": get.text("notes", max_length=1000),
+        }
+
+    # -- validation: expenses ------------------------------------------------
+    def _validate_expense(
+        self, line: int, raw: dict[str, str], report: ImportReport, ctx: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        get = _reader(line, raw, report)
+
+        when = get.day("expense_date", required=True)
+        amount = get.money("amount", required=True)
+        if when is None or amount is None:
+            return None
+
+        if amount <= Decimal("0"):
+            report.errors.append(
+                RowIssue(line, "amount", "An expense has to be more than zero.")
+            )
+            return None
+        if when > ctx["today"]:
+            report.errors.append(
+                RowIssue(
+                    line,
+                    "expense_date",
+                    f"{when} is in the future. An expense records money you have "
+                    f"already paid.",
+                )
+            )
+            return None
+
+        method = PaymentMethod.CASH
+        raw_method = get.text("payment_method", max_length=20)
+        if raw_method:
+            try:
+                method = PaymentMethod(raw_method.strip().upper().replace(" ", "_"))
+            except ValueError:
+                report.errors.append(
+                    RowIssue(
+                        line,
+                        "payment_method",
+                        f"'{raw_method}' is not a payment method. Use one of: "
+                        f"{', '.join(m.value for m in PaymentMethod)}.",
+                    )
+                )
+                return None
+
+        # A cash account carries a BALANCE, so it is never invented -- unlike a
+        # category, which is only a label. Same asymmetry as customers on the
+        # credits import; see _resolve_category.
+        account_id: str | None = None
+        account_name = get.text("cash_account", max_length=120)
+        if account_name:
+            account_id = ctx["accounts"].get(account_name.strip().lower())
+            if account_id is None:
+                report.errors.append(
+                    RowIssue(
+                        line,
+                        "cash_account",
+                        f"You have no account called '{account_name}'. Add it under "
+                        f"Cash & Bank first, or leave this blank.",
+                    )
+                )
+                return None
+
+        # A supplier IS matched but never invented: an unmatched name is simply kept
+        # as text on the expense, which is exactly what vendor_name is for.
+        vendor_name = get.text("vendor_name", max_length=200)
+        vendor_id = ctx["vendors"].get(vendor_name.strip().lower()) if vendor_name else None
+
+        return {
+            "expense_date": when,
+            "amount": amount,
+            "category_name": self._resolve_category(get, ctx),
+            "vendor_id": vendor_id,
+            "vendor_name": vendor_name,
+            "cash_account_id": account_id,
+            "payment_method": method,
+            "provider": get.text("provider", max_length=120),
+            "reference": get.text("reference", max_length=120),
+            "notes": get.text("notes", max_length=1000),
+        }
+
+    def _apply_expense_categories(
+        self, prepared: list[tuple[int, dict[str, Any]]]
+    ) -> None:
+        """Same contract as _apply_categories, against the EXPENSE category table.
+
+        Deliberately not shared with the catalog version: they are different tables
+        that happen to have the same shape, and merging them would put spending
+        buckets in the product-category dropdown. See models/expense.py.
+        """
+        from app.models.expense import ExpenseCategory
+
+        rows = self.session.exec(
+            select(ExpenseCategory).where(
+                ExpenseCategory.business_id == self.scope_id,  # TENANCY BOUNDARY
+                col(ExpenseCategory.deleted_at).is_(None),
+            )
+        ).all()
+        index = {c.name.strip().lower(): c.id for c in rows}
+        service = ExpenseCategoryService(self.ctx)
+
+        for _line, payload in prepared:
+            name = payload.pop("category_name", None)
+            if not name:
+                payload["category_id"] = None
+                continue
+            key = name.strip().lower()
+            if key not in index:
+                index[key] = service.build(name.strip()).id
+            payload["category_id"] = index[key]
+
     # -- validation: credits -------------------------------------------------
     def _validate_credit(
         self, line: int, raw: dict[str, str], report: ImportReport, ctx: dict[str, Any]
@@ -1260,6 +1543,8 @@ _VALIDATORS = {
     "credits": ImportService._validate_credit,
     "products": ImportService._validate_product,
     "services": ImportService._validate_service,
+    "vendors": ImportService._validate_vendor,
+    "expenses": ImportService._validate_expense,
 }
 
 

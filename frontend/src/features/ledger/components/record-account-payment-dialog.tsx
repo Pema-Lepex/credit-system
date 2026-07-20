@@ -32,6 +32,8 @@ import {
 import { useRecordAccountPayment } from "@/features/ledger/api";
 import { parseApiError } from "@/features/credits/lib/errors";
 import { useCurrency } from "@/features/common/use-currency";
+import { ProviderField } from "@/features/payments/components/provider-field";
+import { joinProvider } from "@/features/payments/lib/providers";
 import { PAYMENT_METHOD_LABELS } from "@/lib/utils";
 import { PAYMENT_METHODS, type ID, type Money } from "@/types";
 
@@ -45,6 +47,8 @@ const schema = z.object({
     .refine((v) => MONEY.test(v), "Write it like 450 or 450.50")
     .refine((v) => Number(v) > 0, "A payment has to be more than zero"),
   method: z.enum(PAYMENT_METHODS),
+  provider: z.string(),
+  providerOther: z.string().max(120),
   reference: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(1000).optional(),
 });
@@ -72,14 +76,24 @@ export function RecordAccountPaymentDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { amount: owed > 0 ? owed.toFixed(2) : "", method: "CASH" },
+    defaultValues: {
+      amount: owed > 0 ? owed.toFixed(2) : "",
+      method: "CASH",
+      provider: "",
+      providerOther: "",
+    },
   });
 
   // Re-seed on open: the balance moves between openings, and a stale default would
   // quietly under-settle the account.
   useEffect(() => {
     if (open) {
-      form.reset({ amount: owed > 0 ? owed.toFixed(2) : "", method: "CASH" });
+      form.reset({
+        amount: owed > 0 ? owed.toFixed(2) : "",
+        method: "CASH",
+        provider: "",
+        providerOther: "",
+      });
     }
   }, [open, owed, form]);
 
@@ -92,6 +106,7 @@ export function RecordAccountPaymentDialog({
         customerId,
         amount: values.amount,
         method: values.method,
+        provider: joinProvider(values.provider, values.providerOther),
         reference: values.reference || null,
         notes: values.notes || null,
       },
@@ -175,6 +190,14 @@ export function RecordAccountPaymentDialog({
             }))}
           />
         </FormField>
+
+        <ProviderField
+          method={form.watch("method")}
+          choice={form.watch("provider")}
+          custom={form.watch("providerOther")}
+          onChoiceChange={(value) => form.setValue("provider", value)}
+          onCustomChange={(value) => form.setValue("providerOther", value)}
+        />
 
         <FormField
           label="Reference"

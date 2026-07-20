@@ -149,6 +149,9 @@ export function PaymentsTable({
         cell: (info) => (
           <span className="text-muted-foreground">
             {PAYMENT_METHOD_LABELS[info.getValue()]}
+            {info.row.original.provider ? (
+              <span className="block text-xs">{info.row.original.provider}</span>
+            ) : null}
           </span>
         ),
       }),

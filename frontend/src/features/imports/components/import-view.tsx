@@ -61,6 +61,8 @@ const COPY: Record<ImportDataset, { title: string; backHref: string; backLabel: 
   credits: { title: "Import credits", backHref: "/credits", backLabel: "Credits" },
   products: { title: "Import products", backHref: "/products", backLabel: "Products" },
   services: { title: "Import services", backHref: "/services", backLabel: "Services" },
+  vendors: { title: "Import suppliers", backHref: "/vendors", backLabel: "Suppliers" },
+  expenses: { title: "Import expenses", backHref: "/expenses", backLabel: "Expenses" },
 };
 
 export function ImportView({ dataset }: ImportViewProps) {
@@ -178,6 +180,8 @@ const PERMISSION: Record<ImportDataset, Permission> = {
   credits: "credit:write",
   products: "catalog:write",
   services: "catalog:write",
+  vendors: "vendor:write",
+  expenses: "expense:write",
 };
 
 const NOUN: Record<ImportDataset, [singular: string, plural: string]> = {
@@ -185,6 +189,8 @@ const NOUN: Record<ImportDataset, [singular: string, plural: string]> = {
   credits: ["credit record", "credit records"],
   products: ["product", "products"],
   services: ["service", "services"],
+  vendors: ["supplier", "suppliers"],
+  expenses: ["expense", "expenses"],
 };
 
 function rowNoun(dataset: ImportDataset, plural = false): string {

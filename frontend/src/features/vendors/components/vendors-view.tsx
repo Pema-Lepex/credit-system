@@ -1,6 +1,16 @@
 "use client";
 
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2, Truck } from "lucide-react";
+import {
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  Truck,
+  Upload,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -24,8 +34,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  buttonVariants,
 } from "@/components/ui";
 import { parseApiError } from "@/features/credits/lib/errors";
+import { cn } from "@/lib/utils";
 import { VendorFormDialog } from "@/features/vendors/components/vendor-form-dialog";
 import { useDeleteVendor, useVendors } from "@/features/vendors/hooks";
 import type { VendorRow } from "@/features/vendors/queries";
@@ -63,9 +75,18 @@ export function VendorsView() {
         description="Everyone the business pays. Picking a supplier on an expense keeps your spending reports tidy."
         actions={
           canWrite ? (
-            <Button leftIcon={<Plus />} onClick={openCreate}>
-              Add supplier
-            </Button>
+            <>
+              <Link
+                href="/vendors/import"
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                <Upload aria-hidden="true" />
+                Import
+              </Link>
+              <Button leftIcon={<Plus />} onClick={openCreate}>
+                Add supplier
+              </Button>
+            </>
           ) : null
         }
       />

@@ -5,6 +5,7 @@ input AccountPaymentInput {
   customerId: ID!
   amount: String!
   method: PaymentMethod! = CASH
+  provider: String = null
   paidAt: Date = null
   reference: String = null
   notes: String = null
@@ -657,6 +658,7 @@ input ExpenseInput {
   categoryId: ID = null
   vendorName: String = null
   paymentMethod: PaymentMethod = null
+  provider: String = null
   expenseDate: Date = null
   reference: String = null
   notes: String = null
@@ -694,6 +696,7 @@ type ExpenseType {
   recurringTemplateId: ID
   isGenerated: Boolean!
   paymentMethod: PaymentMethod!
+  provider: String
   expenseDate: Date!
   reference: String
   notes: String
@@ -1104,6 +1107,7 @@ input PaymentInput {
   creditId: ID!
   amount: String!
   method: PaymentMethod! = CASH
+  provider: String = null
   paidAt: Date = null
   reference: String = null
   notes: String = null
@@ -1134,6 +1138,7 @@ type PaymentType {
   amount: String!
   balanceAfter: String!
   method: PaymentMethod!
+  provider: String
   reference: String
   notes: String
   paidAt: DateTime!
@@ -1379,6 +1384,7 @@ input RecurringExpenseInput {
   vendorName: String = null
   cashAccountId: ID = null
   paymentMethod: PaymentMethod = null
+  provider: String = null
   frequency: ExpenseFrequency = null
   nextRun: Date = null
   endDate: Date = null
@@ -1402,6 +1408,7 @@ type RecurringExpenseType {
   cashAccountName: String
   amount: String!
   paymentMethod: PaymentMethod!
+  provider: String
   frequency: ExpenseFrequency!
   nextRun: Date!
   endDate: Date

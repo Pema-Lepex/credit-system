@@ -47,6 +47,7 @@ export interface ExpenseRow {
   /** Created by a repeating bill. Such expenses are not editable — the server refuses. */
   isGenerated: boolean;
   paymentMethod: PaymentMethod;
+  provider: string | null;
   expenseDate: ISODate;
   reference: string | null;
   notes: string | null;
@@ -76,6 +77,7 @@ export interface ExpenseInput {
   cashAccountId?: ID | null;
   vendorName?: string | null;
   paymentMethod?: PaymentMethod | null;
+  provider?: string | null;
   expenseDate?: ISODate | null;
   reference?: string | null;
   notes?: string | null;
@@ -117,6 +119,7 @@ const EXPENSE_FIELDS = /* GraphQL */ `
     recurringTemplateId
     isGenerated
     paymentMethod
+    provider
     expenseDate
     reference
     notes

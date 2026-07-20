@@ -204,6 +204,15 @@ class Payment(TenantEntity, table=True):
     balance_after: Decimal = Field(default=Decimal("0"), sa_type=MoneyType)  # type: ignore[call-overload]
 
     method: PaymentMethod = Field(default=PaymentMethod.CASH, max_length=20, index=True)
+
+    #: WHICH bank / wallet / operator, when the method alone is not enough.
+    #:
+    #: FREE TEXT, not an enum, and that is deliberate. The banks a shop deals with
+    #: are a fact about its COUNTRY, not about this product -- baking Bhutan's six
+    #: into the schema would make the app unusable anywhere else and would need a
+    #: migration every time a bank rebrands. The UI offers a suggested list and
+    #: accepts anything typed, which is the same shape as Expense.vendor_name.
+    provider: str | None = Field(default=None, index=True, max_length=120)
     reference: str | None = Field(default=None, index=True, max_length=120)  # cheque no, txn id
     notes: str | None = Field(default=None, max_length=1000)
 

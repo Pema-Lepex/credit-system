@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, ReceiptText, RefreshCw, SearchX } from "lucide-react";
+import { Plus, ReceiptText, RefreshCw, SearchX, Upload } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -13,6 +14,7 @@ import {
   EmptyState,
   Pagination,
   SkeletonTable,
+  buttonVariants,
 } from "@/components/ui";
 import { useMoney } from "@/features/credits/hooks/use-business-settings";
 import { parseApiError } from "@/features/credits/lib/errors";
@@ -26,7 +28,7 @@ import {
 } from "@/features/expenses/lib/filters";
 import type { ExpenseRow } from "@/features/expenses/queries";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -62,9 +64,18 @@ export function ExpensesView() {
         description="Money going out of the business — rent, stock, fuel, wages. Recording an expense never changes what your customers owe you."
         actions={
           canWrite ? (
-            <Button leftIcon={<Plus />} onClick={openCreate}>
-              Record expense
-            </Button>
+            <>
+              <Link
+                href="/expenses/import"
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                <Upload aria-hidden="true" />
+                Import
+              </Link>
+              <Button leftIcon={<Plus />} onClick={openCreate}>
+                Record expense
+              </Button>
+            </>
           ) : null
         }
       />

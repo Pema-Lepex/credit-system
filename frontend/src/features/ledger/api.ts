@@ -63,6 +63,8 @@ export interface AccountPaymentInput {
   customerId: ID;
   amount: string;
   method?: string;
+  /** Which bank / wallet. Free text — see features/payments/lib/providers.ts. */
+  provider?: string | null;
   paidAt?: string | null;
   reference?: string | null;
   notes?: string | null;

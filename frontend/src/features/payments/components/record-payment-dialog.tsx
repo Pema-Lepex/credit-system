@@ -19,7 +19,9 @@ import { useMoney } from "@/features/credits/hooks/use-business-settings";
 import { parseApiError, toFormFieldName } from "@/features/credits/lib/errors";
 import { moneyExceeds } from "@/features/credits/lib/money";
 import type { UploadedFile } from "@/features/credits/lib/rest";
+import { ProviderField } from "@/features/payments/components/provider-field";
 import { useRecordPayment } from "@/features/payments/hooks/use-payments";
+import { joinProvider } from "@/features/payments/lib/providers";
 import { PAYMENT_METHOD_LABELS } from "@/lib/utils";
 import { PAYMENT_METHODS, type ID, type Money, type PaymentMethod } from "@/types";
 
@@ -41,6 +43,8 @@ const schema = z.object({
     .min(1, "Enter an amount")
     .regex(MONEY_PATTERN, "Use a number with at most two decimal places"),
   method: z.enum(PAYMENT_METHODS),
+  provider: z.string(),
+  providerOther: z.string().max(120),
   paidAt: z.string().min(1, "Pick a date"),
   reference: z.string().max(120).optional(),
   notes: z.string().max(500).optional(),
@@ -87,13 +91,15 @@ export function RecordPaymentDialog({
     defaultValues: {
       amount: credit?.remainingAmount ?? "",
       method: "CASH",
+      provider: "",
+      providerOther: "",
       paidAt: todayISO(),
       reference: "",
       notes: "",
     },
   });
 
-  const { reset, setError, handleSubmit, register, formState, watch } = form;
+  const { reset, setError, handleSubmit, register, formState, watch, setValue } = form;
 
   // Re-seed whenever a DIFFERENT credit is opened. Without this the dialog would
   // still be holding the previous customer's balance.
@@ -102,6 +108,8 @@ export function RecordPaymentDialog({
     reset({
       amount: credit.remainingAmount,
       method: "CASH",
+      provider: "",
+      providerOther: "",
       paidAt: todayISO(),
       reference: "",
       notes: "",
@@ -111,6 +119,7 @@ export function RecordPaymentDialog({
   }, [open, credit, reset]);
 
   const amount = watch("amount");
+  const method = watch("method");
   // A local guard, not the authority. The server is the authority and will refuse
   // an overpayment regardless — this just says so before the round trip.
   const wouldOverpay =
@@ -127,6 +136,7 @@ export function RecordPaymentDialog({
         creditId: credit.id,
         amount: values.amount,
         method: values.method as PaymentMethod,
+        provider: joinProvider(values.provider, values.providerOther),
         paidAt: values.paidAt,
         reference: values.reference?.trim() || null,
         notes: values.notes?.trim() || null,
@@ -217,6 +227,14 @@ export function RecordPaymentDialog({
             />
           </FormField>
         </div>
+
+        <ProviderField
+          method={method}
+          choice={watch("provider")}
+          custom={watch("providerOther")}
+          onChoiceChange={(value) => setValue("provider", value)}
+          onCustomChange={(value) => setValue("providerOther", value)}
+        />
 
         {wouldOverpay ? (
           <Alert variant="warning" title="More than is owed">

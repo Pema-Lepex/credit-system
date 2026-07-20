@@ -343,6 +343,7 @@ class PaymentInput:
     credit_id: strawberry.ID
     amount: str
     method: PaymentMethod = PaymentMethod.CASH  # type: ignore[valid-type,assignment]
+    provider: str | None = None
     paid_at: date | None = None
     reference: str | None = None
     notes: str | None = None
@@ -375,6 +376,7 @@ class AccountPaymentInput:
     customer_id: strawberry.ID
     amount: str
     method: PaymentMethod = PaymentMethod.CASH  # type: ignore[valid-type,assignment]
+    provider: str | None = None
     paid_at: date | None = None
     reference: str | None = None
     notes: str | None = None
@@ -416,6 +418,7 @@ class ExpenseInput:
     category_id: strawberry.ID | None = None
     vendor_name: str | None = None
     payment_method: PaymentMethod | None = None  # type: ignore[valid-type]
+    provider: str | None = None
     expense_date: date | None = None
     reference: str | None = None
     notes: str | None = None
@@ -454,6 +457,7 @@ class RecurringExpenseInput:
     vendor_name: str | None = None
     cash_account_id: strawberry.ID | None = None
     payment_method: PaymentMethod | None = None  # type: ignore[valid-type]
+    provider: str | None = None
     frequency: ExpenseFrequency | None = None  # type: ignore[valid-type]
     next_run: date | None = None
     end_date: date | None = None

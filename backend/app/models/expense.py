@@ -128,6 +128,9 @@ class Expense(TenantEntity, table=True):
     recurring_template_id: str | None = Field(default=None, index=True, max_length=32)
 
     payment_method: PaymentMethod = Field(default=PaymentMethod.CASH, max_length=20, index=True)
+
+    #: WHICH bank / wallet / operator. Free text -- see the note on Payment.provider.
+    provider: str | None = Field(default=None, index=True, max_length=120)
     expense_date: date = Field(index=True)
 
     reference: str | None = Field(default=None, index=True, max_length=120)

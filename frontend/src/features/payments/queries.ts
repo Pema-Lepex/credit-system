@@ -39,6 +39,8 @@ export interface PaymentRow {
   amount: Money;
   balanceAfter: Money;
   method: PaymentMethod;
+  /** Which bank / wallet. Free text — see features/payments/lib/providers.ts. */
+  provider: string | null;
   reference: string | null;
   notes: string | null;
   paidAt: ISODateTime;
@@ -57,6 +59,7 @@ export interface PaymentInput {
   creditId: ID;
   amount: Money;
   method: PaymentMethod;
+  provider?: string | null;
   paidAt?: ISODate | null;
   reference?: string | null;
   notes?: string | null;
@@ -76,6 +79,7 @@ export const PAYMENTS_QUERY = /* GraphQL */ `
         amount
         balanceAfter
         method
+        provider
         reference
         notes
         paidAt

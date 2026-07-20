@@ -14,7 +14,6 @@ import {
   CardTitle,
   buttonVariants,
 } from "@/components/ui";
-import { PageHeader } from "@/components/layout/page-header";
 import { CollectionsByMethodChart } from "@/features/dashboard/components/collections-by-method-chart";
 import { DashboardSkeleton } from "@/features/dashboard/components/dashboard-skeleton";
 import { LatestActivity } from "@/features/dashboard/components/latest-activity";
@@ -39,20 +38,18 @@ import {
   CashFlowTrendChart,
   RevenueVsExpensesChart,
 } from "@/features/dashboard/components/revenue-vs-expenses-chart";
+import { StoreMasthead } from "@/features/dashboard/components/store-masthead";
 import { fadeUpVariants, staggerVariants } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export function DashboardView() {
-  const { user, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
   const { data, isPending, isError, error, refetch, isFetching } = useDashboard();
 
-  const firstName = user?.fullName?.split(" ")[0];
   const canWriteCredit = hasPermission("credit:write");
 
   const header = (
-    <PageHeader
-      title={firstName ? `Good day, ${firstName}` : "Dashboard"}
-      description="Your credit book at a glance — what is owed, what is late, and what came in."
+    <StoreMasthead
       actions={
         canWriteCredit ? (
           <Link href="/credits/new" className={cn(buttonVariants({ variant: "primary" }))}>

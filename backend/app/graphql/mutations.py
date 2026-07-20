@@ -884,6 +884,7 @@ class Mutation:
             credit_id=str(input.credit_id),
             amount=required_decimal(input.amount, "amount"),
             method=PaymentMethod(input.method),
+            provider=input.provider,
             paid_at=paid_at,
             reference=input.reference,
             notes=input.notes,
@@ -918,6 +919,7 @@ class Mutation:
             customer_id=str(input.customer_id),
             amount=required_decimal(input.amount, "amount"),
             method=PaymentMethod(input.method),
+            provider=input.provider,
             paid_at=paid_at,
             reference=input.reference,
             notes=input.notes,
@@ -962,6 +964,7 @@ class Mutation:
                 payment_method=(
                     PaymentMethod(input.payment_method) if input.payment_method else None
                 ),
+                provider=input.provider,
                 expense_date=input.expense_date,
                 reference=input.reference,
                 notes=input.notes,
@@ -991,6 +994,7 @@ class Mutation:
                 payment_method=(
                     PaymentMethod(input.payment_method) if input.payment_method else None
                 ),
+                provider=input.provider,
                 expense_date=input.expense_date,
                 reference=input.reference,
                 notes=input.notes,
@@ -1214,6 +1218,7 @@ class Mutation:
                 payment_method=(
                     PaymentMethod(input.payment_method) if input.payment_method else None
                 ),
+                provider=input.provider,
                 frequency=(
                     ExpenseFrequencyEnum(input.frequency) if input.frequency else None
                 ),
@@ -1245,6 +1250,7 @@ class Mutation:
                 payment_method=(
                     PaymentMethod(input.payment_method) if input.payment_method else None
                 ),
+                provider=input.provider,
                 frequency=(
                     ExpenseFrequencyEnum(input.frequency) if input.frequency else None
                 ),

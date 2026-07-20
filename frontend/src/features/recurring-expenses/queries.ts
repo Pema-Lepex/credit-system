@@ -24,6 +24,7 @@ export interface RecurringExpenseRow {
   cashAccountName: string | null;
   amount: Money;
   paymentMethod: PaymentMethod;
+  provider: string | null;
   frequency: ExpenseFrequency;
   nextRun: ISODate;
   endDate: ISODate | null;
@@ -40,6 +41,7 @@ export interface RecurringExpenseInput {
   vendorId?: ID | null;
   cashAccountId?: ID | null;
   paymentMethod?: PaymentMethod | null;
+  provider?: string | null;
   frequency?: ExpenseFrequency | null;
   nextRun?: ISODate | null;
   endDate?: ISODate | null;
@@ -78,6 +80,7 @@ const RECURRING_FIELDS = /* GraphQL */ `
     cashAccountName
     amount
     paymentMethod
+    provider
     frequency
     nextRun
     endDate

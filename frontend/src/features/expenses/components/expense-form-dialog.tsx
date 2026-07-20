@@ -17,6 +17,8 @@ import {
   useUpdateExpense,
 } from "@/features/expenses/hooks/use-expenses";
 import type { ExpenseRow } from "@/features/expenses/queries";
+import { ProviderField } from "@/features/payments/components/provider-field";
+import { joinProvider, splitProvider } from "@/features/payments/lib/providers";
 import { PAYMENT_METHOD_LABELS } from "@/lib/utils";
 import { PAYMENT_METHODS, type PaymentMethod } from "@/types";
 
@@ -38,6 +40,8 @@ const schema = z.object({
   cashAccountId: z.string(),
   vendorName: z.string().max(200),
   paymentMethod: z.enum(PAYMENT_METHODS),
+  provider: z.string(),
+  providerOther: z.string().max(120),
   expenseDate: z.string().min(1, "Pick a date"),
   reference: z.string().max(120),
   notes: z.string().max(1000),
@@ -90,13 +94,15 @@ export function ExpenseFormDialog({
       cashAccountId: "",
       vendorName: "",
       paymentMethod: "CASH",
+      provider: "",
+      providerOther: "",
       expenseDate: todayISO(),
       reference: "",
       notes: "",
     },
   });
 
-  const { reset, setError, handleSubmit, register, formState, watch } = form;
+  const { reset, setError, handleSubmit, register, formState, watch, setValue } = form;
   const selectedVendorId = watch("vendorId");
 
   // Re-seed whenever a DIFFERENT expense is opened — otherwise the dialog would
@@ -110,6 +116,8 @@ export function ExpenseFormDialog({
       cashAccountId: expense?.cashAccountId ?? "",
       vendorName: expense?.vendorName ?? "",
       paymentMethod: expense?.paymentMethod ?? "CASH",
+      provider: splitProvider(expense?.provider).choice,
+      providerOther: splitProvider(expense?.provider).custom,
       expenseDate: expense?.expenseDate ?? todayISO(),
       reference: expense?.reference ?? "",
       notes: expense?.notes ?? "",
@@ -132,6 +140,7 @@ export function ExpenseFormDialog({
       // snapshot the supplier's own name, which must win over stale free text.
       vendorName: values.vendorId.trim() ? null : orNull(values.vendorName),
       paymentMethod: values.paymentMethod as PaymentMethod,
+      provider: joinProvider(values.provider, values.providerOther),
       expenseDate: values.expenseDate,
       reference: orNull(values.reference),
       notes: orNull(values.notes),
@@ -277,6 +286,14 @@ export function ExpenseFormDialog({
         >
           <Select options={accountOptions} {...register("cashAccountId")} />
         </FormField>
+
+        <ProviderField
+          method={watch("paymentMethod")}
+          choice={watch("provider")}
+          custom={watch("providerOther")}
+          onChoiceChange={(value) => setValue("provider", value)}
+          onCustomChange={(value) => setValue("providerOther", value)}
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Date" required error={formState.errors.expenseDate?.message}>

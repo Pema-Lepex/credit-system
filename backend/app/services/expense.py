@@ -50,6 +50,7 @@ EXPENSE_FIELDS: frozenset[str] = frozenset(
         "vendor_name",
         "cash_account_id",
         "payment_method",
+        "provider",
         "expense_date",
         "reference",
         "notes",
@@ -112,7 +113,14 @@ class ExpenseCategoryService(BaseService):
         )
         return paginate(self.session, stmt, page or PageInput())
 
+    def build(self, name: str, **fields: Any) -> ExpenseCategory:
+        """Create a category WITHOUT committing. See ExpenseService.build."""
+        return self._create(name, commit=False, **fields)
+
     def create(self, name: str, **fields: Any) -> ExpenseCategory:
+        return self._create(name, commit=True, **fields)
+
+    def _create(self, name: str, *, commit: bool, **fields: Any) -> ExpenseCategory:
         self.require(Permission.EXPENSE_CATEGORY_MANAGE)
         business_id = self.scope_id
 
@@ -133,8 +141,9 @@ class ExpenseCategoryService(BaseService):
         self.audit(
             AuditAction.CREATE, "expense_category", category.id, f"Expense category '{name}' created"
         )
-        self.session.commit()
-        self.session.refresh(category)
+        if commit:
+            self.session.commit()
+            self.session.refresh(category)
         return category
 
     def update(self, category_id: str, **fields: Any) -> ExpenseCategory:
@@ -310,7 +319,19 @@ class ExpenseService(BaseService):
         return self.list(ExpenseFilter(search=term), page)
 
     # ----------------------------------------------------------------- writes
+    def build(self, **fields: Any) -> Expense:
+        """Create an expense WITHOUT committing. The caller owns the transaction.
+
+        Split out of ``create`` for the bulk importer, which turns one spreadsheet
+        into hundreds of expenses and must land them as a single all-or-nothing
+        batch. A per-row commit would leave half a failed import behind.
+        """
+        return self._create(commit=False, **fields)
+
     def create(self, **fields: Any) -> Expense:
+        return self._create(commit=True, **fields)
+
+    def _create(self, *, commit: bool, **fields: Any) -> Expense:
         self.require(Permission.EXPENSE_WRITE)
         business = self.get_business()
 
@@ -344,8 +365,9 @@ class ExpenseService(BaseService):
             f"{f' to {expense.vendor_name}' if expense.vendor_name else ''} "
             f"({PaymentMethod(expense.payment_method).value}) on {expense.expense_date}",
         )
-        self.session.commit()
-        self.session.refresh(expense)
+        if commit:
+            self.session.commit()
+            self.session.refresh(expense)
         return expense
 
     def update(self, expense_id: str, **fields: Any) -> Expense:
@@ -550,7 +572,7 @@ class ExpenseService(BaseService):
                 )
             fields["expense_date"] = value
 
-        for key in ("vendor_name", "reference", "notes"):
+        for key in ("vendor_name", "reference", "notes", "provider"):
             if key in fields and fields[key] is not None:
                 text = str(fields[key]).strip()
                 fields[key] = text or None

@@ -460,6 +460,52 @@ red on the dashboard too.
 
 ---
 
+# Bulk import
+
+Two datasets added to `app/services/imports.py`, alongside the existing customers /
+credits / products / services:
+
+| Dataset | Permission | Notes |
+|---|---|---|
+| `vendors` | `vendor:write` | Name required; duplicates refused against the database AND earlier rows of the same sheet |
+| `expenses` | `expense:write` | Date + Amount required |
+
+The same R1 rule applies: a sheet is validated in full and written in full, or not
+written at all.
+
+**Three resolution rules on the expense sheet**, and the asymmetry between them is
+deliberate:
+
+- **Categories are created as they appear.** A category is a label on a shelf — it
+  carries no money and no identity, and making an owner hand-create ten before
+  their first import buys nothing. Matched case-insensitively, so "Fuel" and "fuel"
+  on two rows produce one category. Creation happens in `_commit`, never during a
+  dry run.
+- **Cash accounts must already exist.** An account carries a *balance*. Inventing
+  one invents money, so an unknown name is an error naming the account.
+- **Suppliers are matched but never invented.** An unmatched name is kept as text
+  on the expense — which is exactly what `vendor_name` is for. A one-off purchase
+  from a shop you will never use again must not force a supplier record.
+
+`ExpenseService`, `ExpenseCategoryService` and `VendorService` each gained a
+non-committing `build()` for this, matching `ProductService.build` — a per-row
+commit would leave half a failed import behind.
+
+## What was NOT given an import, and why
+
+- **Expense categories** — created inline by the expense import, exactly as product
+  categories already are. A separate sheet for a handful of labels is friction.
+- **Cash accounts** — a shop has two to five. Typing them is faster than preparing
+  a spreadsheet.
+- **Recurring bills** — a handful, and each needs a schedule decision (first date,
+  frequency, end date) that is easier to make in the form than in a column.
+- **Payments** — the credits import already carries an `initial_payment` column, so
+  historical part-payments come in with their credit. Bulk-inserting into the
+  append-only ledger would also need to reproduce settlement, overpayment refusal
+  and balance recalculation per row; the value did not justify that risk.
+
+---
+
 ## Still not built
 
 **Print button** on reports — asked for in the spec. There is no `window.print`

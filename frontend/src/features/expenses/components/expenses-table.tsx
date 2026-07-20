@@ -116,7 +116,12 @@ export function ExpensesTable({
         header: "Method",
         enableSorting: false,
         cell: (info) => (
-          <span className="text-muted-foreground">{PAYMENT_METHOD_LABELS[info.getValue()]}</span>
+          <span className="text-muted-foreground">
+            {PAYMENT_METHOD_LABELS[info.getValue()]}
+            {info.row.original.provider ? (
+              <span className="block text-xs">{info.row.original.provider}</span>
+            ) : null}
+          </span>
         ),
       }),
       columnHelper.display({
@@ -271,6 +276,7 @@ export function ExpensesTable({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Badge size="sm" variant="neutral">
                 {PAYMENT_METHOD_LABELS[expense.paymentMethod]}
+                {expense.provider ? ` · ${expense.provider}` : ""}
               </Badge>
               {expense.isGenerated ? (
                 <Badge size="sm" variant="neutral">

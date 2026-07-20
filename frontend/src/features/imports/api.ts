@@ -18,10 +18,19 @@ import {
 } from "@/features/settings/lib/http";
 import { customerKeys } from "@/features/customers/queries";
 import { creditKeys } from "@/features/credits/queries";
+import { dashboardKeys } from "@/features/dashboard/queries";
+import { expenseKeys } from "@/features/expenses/queries";
+import { vendorKeys } from "@/features/vendors/queries";
 import { catalogKeys } from "@/features/catalog/queries";
 
 /** What a spreadsheet can become. Mirrors DATASETS in the import service. */
-export type ImportDataset = "customers" | "credits" | "products" | "services";
+export type ImportDataset =
+  | "customers"
+  | "credits"
+  | "products"
+  | "services"
+  | "vendors"
+  | "expenses";
 
 export type TemplateFormat = "xlsx" | "csv";
 
@@ -169,6 +178,15 @@ export function useCommitImport(dataset: ImportDataset) {
         credits: [creditKeys.all, customerKeys.all],
         products: [catalogKeys.products, catalogKeys.categories],
         services: [catalogKeys.services, catalogKeys.categories],
+        vendors: [vendorKeys.all, expenseKeys.all],
+        // An expense import creates the categories its sheet names, and moves every
+        // figure derived from spending: the dashboard and both money reports.
+        expenses: [
+          expenseKeys.all,
+          dashboardKeys.all,
+          ["report"],
+          ["cash-accounts"],
+        ],
       };
       for (const key of keys[dataset]) {
         void queryClient.invalidateQueries({ queryKey: key });
